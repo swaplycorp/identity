@@ -12,9 +12,16 @@ pub enum IdentityProvider {
     /// Twitch has excellent OpenID connect integration: https://dev.twitch.tv/docs/authentication/getting-tokens-oidc
     Twitch,
 
-    /// 
+    /// Reddit doesn't have support for OpenID connect, but does have a
+    /// /api/v1/me route that we can use to get the ID of a user
     Reddit,
+
+    /// Twitter's docs are pretty god-awful. Here's a route we can use to get
+    /// a user ID from an access token: https://developer.twitter.com/en/docs/accounts-and-users/manage-account-settings/api-reference/get-account-verify_credentials
     Twitter,
+
+    /// In contrast to Twitter, Discord's docs are pretty top-tier. Here's how
+    /// we can identify a user: https://discord.com/developers/docs/resources/user#get-current-user
     Discord,
 }
 
