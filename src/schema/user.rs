@@ -225,7 +225,24 @@ impl<'a> User<'a> {
 ///
 /// # Arguments
 ///
-/// * `session` - 
+/// * `session` - The syclla db connector that should be used
+///
+/// # Examples
+///
+/// ```
+/// use cdrs::{authenticators::StaticPasswordAuthenticator, cluster::NodeTcpConfigBuilder};
+/// use std::{env, error::Error};
+///
+/// # #[tokio::main]
+/// # async fn main() -> Result<(), Box<dyn Error>> {
+///     # dotenv::dotenv()?;
+///
+///     let auth = StaticPasswordAuthenticator::new(env::var("SCYLLA_USERNAME")?, env::var("SCYLLA_PASSWORD")?);
+///     let node = NodeTcpConfigBuilder::new(&env::var("SCYLLA_NODE_URL")?, auth).build();
+///
+///     Ok(())
+/// # }
+/// ```
 pub async fn create_keyspace(session: &mut DbSession) -> CDRSResult<()> {
     session
         .query(

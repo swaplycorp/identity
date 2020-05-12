@@ -3,6 +3,9 @@
 #[macro_use]
 extern crate arrayref;
 
+#[macro_use]
+extern crate tokio;
+
 use cdrs::{
     authenticators::StaticPasswordAuthenticator,
     cluster::{session::Session, TcpConnectionPool},
