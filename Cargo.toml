@@ -5,3 +5,9 @@ authors = ["Dowland Aiello <dowlandaiello@gmail.com>"]
 edition = "2018"
 
 [dependencies]
+uuid = { version = "0.8.1", features = ["serde", "v5"] }
+
+[lib]
+name = "swaply_identity"
+path = "src/lib.rs"
+
