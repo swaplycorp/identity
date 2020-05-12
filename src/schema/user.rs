@@ -1,6 +1,7 @@
+use cdrs::{query::QueryExecutor, Result as CDRSResult};
 use serde::{Deserialize, Serialize};
+use time::OffsetDateTime;
 use uuid::Uuid;
-use cdrs::{Result as CDRSResult};
 
 use super::super::DbSession;
 
@@ -75,6 +76,9 @@ pub struct User<'a> {
     /// hashing function.
     #[serde(with = "serde_bytes")]
     password_hash: Option<&'a [u8]>,
+
+    /// The time at which this user was registered.
+    registered_at: OffsetDateTime,
 }
 
 impl<'a> User<'a> {
@@ -84,6 +88,9 @@ impl<'a> User<'a> {
     ///
     /// * `id` - The ID of the user
     /// * `username` - The username associated with the user
+    /// * `email` - The email associated with the user
+    /// * `identities` - Each of the user's "connections" with third party ID providers
+    /// * `password_hash` - The hash of the user's password
     ///
     /// # Examples
     ///
@@ -106,6 +113,7 @@ impl<'a> User<'a> {
             email,
             identities,
             password_hash: password_hash.map(|byte_array| byte_array as &[u8]),
+            registered_at: OffsetDateTime::now_utc(),
         }
     }
 
@@ -213,6 +221,25 @@ impl<'a> User<'a> {
     }
 }
 
-pub fn create_keyspace(session: &mut DbSession) -> CDRSResult<()> {
-
+/// Creates the necessary keyspace to store users.
+///
+/// # Arguments
+///
+/// * `session` - 
+pub async fn create_keyspace(session: &mut DbSession) -> CDRSResult<()> {
+    session
+        .query(
+            r#"
+            CREATE TABLE IF NOT EXISTS identity.users (
+                id UUID NOT NULL,
+                username TEXT NOT NULL,
+                email TEXT NOT NULL,
+                identities MAP<TEXT, TEXT> NOT NULL,
+                password_hash TEXT,
+                registered_at TIMESTAMP NOT NULL
+            );
+        "#,
+        )
+        .await
+        .map(|_| ())
 }
