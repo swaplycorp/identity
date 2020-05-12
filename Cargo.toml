@@ -5,7 +5,11 @@ authors = ["Dowland Aiello <dowlandaiello@gmail.com>"]
 edition = "2018"
 
 [dependencies]
+blake3 = "0.3.3"
 uuid = { version = "0.8.1", features = ["serde", "v5"] }
+serde = "1.0.110"
+serde_bytes = "0.11.4"
+arrayref = "0.3.6"
 
 [lib]
 name = "swaply_identity"
