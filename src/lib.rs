@@ -3,4 +3,14 @@
 #[macro_use]
 extern crate arrayref;
 
+use cdrs::{
+    authenticators::StaticPasswordAuthenticator,
+    cluster::{session::Session, TcpConnectionPool},
+    load_balancing::RoundRobin,
+};
+
+/// DbSession represents a Scylla database session.
+pub type DbSession = Session<RoundRobin<TcpConnectionPool<StaticPasswordAuthenticator>>>;
+
+/// Schema describes the swaply identity service database schema.
 pub mod schema;

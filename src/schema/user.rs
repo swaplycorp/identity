@@ -1,5 +1,8 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+use cdrs::{Result as CDRSResult};
+
+use super::super::DbSession;
 
 use std::collections::HashMap;
 
@@ -58,6 +61,10 @@ pub struct User<'a> {
     /// safely.
     username: &'a str,
 
+    /// The email associated with this user - this field may not be omitted
+    /// safely.
+    email: &'a str,
+
     /// Each of the third party identity providers that the user chosen to
     /// connect to their account.
     identities: HashMap<IdentityProvider, &'a str>,
@@ -84,17 +91,19 @@ impl<'a> User<'a> {
     /// use swaply_identity::schema::user::User;
     /// use std::collections::HashMap;
     ///
-    /// let u = User::new(None, "test", HashMap::new(), None);
+    /// let u = User::new(None, "test", "test@test.com", HashMap::new(), None);
     /// ```
     pub fn new(
         id: Option<Uuid>,
         username: &'a str,
+        email: &'a str,
         identities: HashMap<IdentityProvider, &'a str>,
         password_hash: Option<&'a [u8; 32]>,
     ) -> Self {
         Self {
             id,
             username,
+            email,
             identities,
             password_hash: password_hash.map(|byte_array| byte_array as &[u8]),
         }
@@ -108,7 +117,7 @@ impl<'a> User<'a> {
     /// use swaply_identity::schema::user::User;
     /// use std::collections::HashMap;
     ///
-    /// let u = User::new(None, "test", HashMap::new(), None);
+    /// let u = User::new(None, "test", "test@test.com", HashMap::new(), None);
     /// assert_eq!(u.id(), None);
     /// ```
     pub fn id(&self) -> Option<&Uuid> {
@@ -123,11 +132,26 @@ impl<'a> User<'a> {
     /// use swaply_identity::schema::user::User;
     /// use std::collections::HashMap;
     ///
-    /// let u = User::new(None, "test", HashMap::new(), None);
+    /// let u = User::new(None, "test", "test@test.com", HashMap::new(), None);
     /// assert_eq!(u.username(), "test");
     /// ```
     pub fn username(&self) -> &str {
         self.username
+    }
+
+    /// Gets the email of the Swaply user.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use swaply_identity::schema::user::User;
+    /// use std::collections::HashMap;
+    ///
+    /// let u = User::new(None, "test", "test@test.com", HashMap::new(), None);
+    /// assert_eq!(u.email(), "test@test.com");
+    /// ```
+    pub fn email(&self) -> &str {
+        self.email
     }
 
     /// Obtains a reference to the set of third party identity integrations associated with this
@@ -139,7 +163,7 @@ impl<'a> User<'a> {
     /// use swaply_identity::schema::user::User;
     /// use std::collections::HashMap;
     ///
-    /// let u = User::new(None, "test", HashMap::new(), None);
+    /// let u = User::new(None, "test", "test@test.com", HashMap::new(), None);
     /// assert_eq!(*u.identities(), HashMap::new());
     /// ```
     pub fn identities(&self) -> &HashMap<IdentityProvider, &str> {
@@ -161,7 +185,7 @@ impl<'a> User<'a> {
     /// let mut identities = HashMap::new();
     /// identities.insert(IdentityProvider::GitHub, "dowlandaiello");
     ///
-    /// let u = User::new(None, "test", identities, None);
+    /// let u = User::new(None, "test", "test@test.com", identities, None);
     ///
     /// assert_eq!(u.user_id_for(IdentityProvider::GitHub), Some("dowlandaiello"));
     /// ```
@@ -180,11 +204,15 @@ impl<'a> User<'a> {
     ///
     /// let password_hash = blake3::hash(b"123456");
     ///
-    /// let u = User::new(None, "test", HashMap::new(), Some(password_hash.as_bytes()));
-    /// assert_eq!(u.password_hash(), Some(password_hash));
+    /// let u = User::new(None, "test", "test@test.com", HashMap::new(), Some(password_hash.as_bytes()));
+    /// assert_eq!(u.password_hash(), Some(password_hash.as_bytes()));
     /// ```
     pub fn password_hash(&self) -> Option<&[u8; 32]> {
         self.password_hash
             .map(|hash_bytes| array_ref![hash_bytes, 0, 32])
     }
+}
+
+pub fn create_keyspace(session: &mut DbSession) -> CDRSResult<()> {
+
 }
