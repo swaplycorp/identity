@@ -230,17 +230,23 @@ impl<'a> User<'a> {
 /// # Examples
 ///
 /// ```
-/// use cdrs::{authenticators::StaticPasswordAuthenticator, cluster::NodeTcpConfigBuilder};
+/// use cdrs::{authenticators::StaticPasswordAuthenticator, cluster::{NodeTcpConfigBuilder, ClusterTcpConfig}, load_balancing::RoundRobin};
 /// use std::{env, error::Error};
 ///
 /// # #[tokio::main]
 /// # async fn main() -> Result<(), Box<dyn Error>> {
-///     # dotenv::dotenv()?;
+/// # dotenv::dotenv()?;
 ///
-///     let auth = StaticPasswordAuthenticator::new(env::var("SCYLLA_USERNAME")?, env::var("SCYLLA_PASSWORD")?);
-///     let node = NodeTcpConfigBuilder::new(&env::var("SCYLLA_NODE_URL")?, auth).build();
+/// let db_node = env::var("SCYLLA_NODE_URL")?;
 ///
-///     Ok(())
+/// let auth = StaticPasswordAuthenticator::new(env::var("SCYLLA_USERNAME")?, env::var("SCYLLA_PASSWORD")?);
+/// let node = NodeTcpConfigBuilder::new(&db_node, auth).build();
+/// let cluster_config = ClusterTcpConfig(vec![node]);
+/// let mut session = cdrs::cluster::session::new(&cluster_config, RoundRobin::new()).await?;
+///
+/// swaply_identity::schema::user::create_keyspace(&mut session).await?;
+///
+/// Ok(())
 /// # }
 /// ```
 pub async fn create_keyspace(session: &mut DbSession) -> CDRSResult<()> {
