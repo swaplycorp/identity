@@ -244,12 +244,13 @@ impl<'a> User<'a> {
 /// let cluster_config = ClusterTcpConfig(vec![node]);
 /// let mut session = cdrs::cluster::session::new(&cluster_config, RoundRobin::new()).await?;
 ///
-/// swaply_identity::schema::user::create_keyspace(&mut session).await?;
+/// swaply_identity::create_keyspace(&mut session).await?;
+/// swaply_identity::schema::user::create_table(&mut session).await?;
 ///
 /// Ok(())
 /// # }
 /// ```
-pub async fn create_keyspace(session: &mut DbSession) -> CDRSResult<()> {
+pub async fn create_table(session: &mut DbSession) -> CDRSResult<()> {
     session
         .query(
             r#"
