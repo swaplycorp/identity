@@ -11,7 +11,8 @@ serde = "1.0.110"
 serde_bytes = "0.11.4"
 arrayref = "0.3.6"
 cdrs = "3.0.0-beta.2"
-time = { version = "0.2.15", features = ["serde"] }
+time = { version = "0.1.43" }
+chrono = { version = "0.4", features = ["serde"] }
 dotenv = "0.15.0"
 tokio = "0.2.20"
 bincode = "1.2.1"
