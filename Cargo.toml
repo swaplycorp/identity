@@ -11,6 +11,7 @@ serde = "1.0.110"
 serde_bytes = "0.11.4"
 arrayref = "0.3.6"
 cdrs = "3.0.0-beta.2"
+cdrs_helpers_derive = "0.3.3"
 time = { version = "0.1.43" }
 chrono = { version = "0.4", features = ["serde"] }
 dotenv = "0.15.0"

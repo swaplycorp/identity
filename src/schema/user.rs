@@ -1,8 +1,8 @@
 use cdrs::{
     query::{QueryExecutor, QueryValues},
     query_values,
-    types::value::Bytes,
-    frame::traits::IntoQueryValues,
+    types::{value::{Bytes, rows::Row}, from_cdrs::FromCDRS},
+    frame::traits::{IntoQueryValues},
     Result as CDRSResult,
 };
 use chrono::{DateTime, Utc};
@@ -116,6 +116,17 @@ impl TryFrom<&str> for IdentityProvider {
             _ => Err(Self::Error::InvalidProvider),
         }
     }
+}
+
+/// Cdrs was written by a boomer who doesn't know how pointers work, so I have to do this.
+#[derive(Debug, TryFromRow)]
+struct OwnedUser {
+    id: Uuid,
+    username: String,
+    email: String,
+    identities: HashMap<String, String>,
+    password_hash: Vec<u8>,
+    registered_at: Timespec
 }
 
 /// User represents a user of any one of the swaply products. A user may be
@@ -344,6 +355,12 @@ impl<'a> IntoQueryValues for User<'a> {
                 Timespec::new(n_nanoseconds / 1_000_000_000, (n_nanoseconds % 1_000_000_000) as i32)
             }
         )
+    }
+}
+
+impl<'a> TryFromRow for User<'a> {
+    fn try_from_row(row: Row) -> CDRSResult<Self> {
+        
     }
 }
 
