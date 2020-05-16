@@ -154,11 +154,13 @@ impl<'a> User<'a> {
     ///
     /// # Arguments
     ///
-    /// * `id` - The ID of the user
+    /// * `id` - The ID of the user: if unassigned, a random UUID will be generated
     /// * `username` - The username associated with the user
     /// * `email` - The email associated with the user
     /// * `identities` - Each of the user's "connections" with third party ID providers
     /// * `password_hash` - The hash of the user's password
+    /// * `registered_at` - The time that the user registered with swaply: if left unassigned, the
+    /// current UTC time will be used
     ///
     /// # Examples
     ///
@@ -166,7 +168,9 @@ impl<'a> User<'a> {
     /// use swaply_identity::schema::user::User;
     /// use std::collections::HashMap;
     ///
-    /// let u = User::new(None, "test", "test@test.com", HashMap::new(), None);
+    /// let password_hash = blake3::hash(b"123456");
+    ///
+    /// let u = User::new(None, "test", "test@test.com", HashMap::new(), password_hash.as_bytes(), None);
     /// ```
     pub fn new(
         id: Option<Uuid>,
@@ -193,9 +197,13 @@ impl<'a> User<'a> {
     /// ```
     /// use swaply_identity::schema::user::User;
     /// use std::collections::HashMap;
+    /// use uuid::Uuid;
     ///
-    /// let u = User::new(None, "test", "test@test.com", HashMap::new(), None);
-    /// assert_eq!(u.id(), None);
+    /// let password_hash = blake3::hash(b"123456");
+    ///
+    /// let id = Uuid::new_v4();
+    /// let u = User::new(Some(id), "test", "test@test.com", HashMap::new(), password_hash.as_bytes(), None);
+    /// assert_eq!(u.id(), &id);
     /// ```
     pub fn id(&self) -> &Uuid {
         &self.id
@@ -209,7 +217,9 @@ impl<'a> User<'a> {
     /// use swaply_identity::schema::user::User;
     /// use std::collections::HashMap;
     ///
-    /// let u = User::new(None, "test", "test@test.com", HashMap::new(), None);
+    /// let password_hash = blake3::hash(b"123456");
+    ///
+    /// let u = User::new(None, "test", "test@test.com", HashMap::new(), password_hash.as_bytes(), None);
     /// assert_eq!(u.username(), "test");
     /// ```
     pub fn username(&self) -> &str {
@@ -224,7 +234,9 @@ impl<'a> User<'a> {
     /// use swaply_identity::schema::user::User;
     /// use std::collections::HashMap;
     ///
-    /// let u = User::new(None, "test", "test@test.com", HashMap::new(), None);
+    /// let password_hash = blake3::hash(b"123456");
+    ///
+    /// let u = User::new(None, "test", "test@test.com", HashMap::new(), password_hash.as_bytes(), None);
     /// assert_eq!(u.email(), "test@test.com");
     /// ```
     pub fn email(&self) -> &str {
@@ -240,7 +252,9 @@ impl<'a> User<'a> {
     /// use swaply_identity::schema::user::User;
     /// use std::collections::HashMap;
     ///
-    /// let u = User::new(None, "test", "test@test.com", HashMap::new(), None);
+    /// let password_hash = blake3::hash(b"123456");
+    ///
+    /// let u = User::new(None, "test", "test@test.com", HashMap::new(), password_hash.as_bytes(), None);
     /// assert_eq!(*u.identities(), HashMap::new());
     /// ```
     pub fn identities(&self) -> &HashMap<IdentityProvider, &str> {
@@ -257,12 +271,15 @@ impl<'a> User<'a> {
     ///
     /// ```
     /// use swaply_identity::schema::user::{User, IdentityProvider};
+    /// use uuid::Uuid;
     /// use std::collections::HashMap;
+    ///
+    /// let password_hash = blake3::hash(b"123456");
     ///
     /// let mut identities = HashMap::new();
     /// identities.insert(IdentityProvider::GitHub, "dowlandaiello");
     ///
-    /// let u = User::new(None, "test", "test@test.com", identities, None);
+    /// let u = User::new(None, "test", "test@test.com", identities, password_hash.as_bytes(), None);
     ///
     /// assert_eq!(u.user_id_for(IdentityProvider::GitHub), Some("dowlandaiello"));
     /// ```
@@ -281,11 +298,34 @@ impl<'a> User<'a> {
     ///
     /// let password_hash = blake3::hash(b"123456");
     ///
-    /// let u = User::new(None, "test", "test@test.com", HashMap::new(), Some(password_hash.as_bytes()));
-    /// assert_eq!(u.password_hash(), Some(password_hash.as_bytes()));
+    /// let u = User::new(None, "test", "test@test.com", HashMap::new(), password_hash.as_bytes(), None);
+    /// assert_eq!(u.password_hash(), password_hash.as_bytes());
     /// ```
     pub fn password_hash(&self) -> &[u8; 32] {
         array_ref![self.password_hash, 0, 32]
+    }
+
+    /// Gets a timestamp matching the time at which the user registered with the swaply identity
+    /// service.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use swaply_identity::schema::user::{User, IdentityProvider};
+    /// use std::collections::HashMap;
+    /// use chrono::{Utc, DateTime};
+    ///
+    /// let password_hash = blake3::hash(b"123456");
+    ///
+    /// let registered_at = Utc::now();
+    /// let mut u = User::new(None, "test", "test@test.com", HashMap::new(), password_hash.as_bytes(), Some(registered_at));
+    /// assert_eq!(u.registered_at(), registered_at);
+    ///
+    /// u = User::new(None, "test", "test@test.com", HashMap::new(), password_hash.as_bytes(), None);
+    /// u.registered_at(); // An ISO 8601 timestamp representing the time at which u was created
+    /// ```
+    pub fn registered_at(&self) -> DateTime<Utc> {
+        self.registered_at
     }
 }
 
