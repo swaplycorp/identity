@@ -22,3 +22,6 @@ Cargo.lock
 #/target
 
 .env
+
+# I don't know where the fuck this thing came from
+user.log
