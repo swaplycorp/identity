@@ -2,6 +2,7 @@ use cdrs::{
     query::{QueryExecutor, QueryValues},
     query_values,
     types::value::Bytes,
+    frame::traits::IntoQueryValues,
     Result as CDRSResult,
 };
 use chrono::{DateTime, Utc};
@@ -329,8 +330,8 @@ impl<'a> User<'a> {
     }
 }
 
-impl<'a> Into<QueryValues> for User<'a> {
-    fn into(self) -> QueryValues {
+impl<'a> IntoQueryValues for User<'a> {
+    fn into_query_values(self) -> QueryValues {
         query_values!(
             "id" => self.id,
             "username" => self.username,
@@ -369,14 +370,14 @@ impl<'a> Into<QueryValues> for User<'a> {
 /// let cluster_config = ClusterTcpConfig(vec![node]);
 /// let mut session = cdrs::cluster::session::new(&cluster_config, RoundRobin::new()).await?;
 ///
-/// swaply_identity::schema::user::create_keyspace(&mut session).await?;
+/// swaply_identity::schema::user::create_tables(&mut session).await?;
 ///
 /// Ok(())
 /// # }
 /// ```
-pub async fn create_keyspace(session: &mut DbSession) -> CDRSResult<()> {
-    session
-        .query(
+pub async fn create_tables(session: &mut DbSession) -> CDRSResult<()> {
+    futures_util::try_join!(
+        session.query(
             r#"
             CREATE TABLE IF NOT EXISTS identity.users (
                 id UUID,
@@ -385,10 +386,20 @@ pub async fn create_keyspace(session: &mut DbSession) -> CDRSResult<()> {
                 identities MAP<TEXT, TEXT>,
                 password_hash TEXT,
                 registered_at TIMESTAMP,
-                PRIMARY KEY ((username, email), id, username)
+                PRIMARY KEY (id, username, email)
             );
         "#,
+        ),
+        session.query(
+            r#"
+                CREATE TABLE IF NOT EXISTS identity.user_connections (
+                    user_id UUID,
+                    connection_provider TEXT,
+                    id_for_provider TEXT,
+                    PRIMARY KEY ((user_id, connection_provider))
+                );
+            "#,
         )
-        .await
-        .map(|_| ())
+    )
+    .map(|_| ())
 }
