@@ -10,7 +10,7 @@ uuid = { version = "0.8.1", features = ["serde", "v5"] }
 serde = "1.0.110"
 serde_bytes = "0.11.4"
 arrayref = "0.3.6"
-cdrs = { git = "https://github.com/AlexPikalov/cdrs", branch = "async-tokio" }
+cdrs = "3.0.0-beta.2"
 time = { version = "0.2.15", features = ["serde"] }
 dotenv = "0.15.0"
 tokio = "0.2.20"

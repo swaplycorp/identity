@@ -244,23 +244,23 @@ impl<'a> User<'a> {
 /// let cluster_config = ClusterTcpConfig(vec![node]);
 /// let mut session = cdrs::cluster::session::new(&cluster_config, RoundRobin::new()).await?;
 ///
-/// swaply_identity::create_keyspace(&mut session).await?;
-/// swaply_identity::schema::user::create_table(&mut session).await?;
+/// swaply_identity::schema::user::create_keyspace(&mut session).await?;
 ///
 /// Ok(())
 /// # }
 /// ```
-pub async fn create_table(session: &mut DbSession) -> CDRSResult<()> {
+pub async fn create_keyspace(session: &mut DbSession) -> CDRSResult<()> {
     session
         .query(
             r#"
             CREATE TABLE IF NOT EXISTS identity.users (
-                id UUID NOT NULL,
-                username TEXT NOT NULL,
-                email TEXT NOT NULL,
-                identities MAP<TEXT, TEXT> NOT NULL,
+                id UUID,
+                username TEXT,
+                email TEXT,
+                identities MAP<TEXT, TEXT>,
                 password_hash TEXT,
-                registered_at TIMESTAMP NOT NULL
+                registered_at TIMESTAMP,
+                PRIMARY KEY (id, username)
             );
         "#,
         )
