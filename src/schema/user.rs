@@ -1,4 +1,9 @@
-use cdrs::{query::QueryExecutor, Result as CDRSResult};
+use cdrs::{
+    query::{QueryExecutor, QueryValues},
+    query_values,
+    types::value::Bytes,
+    Result as CDRSResult,
+};
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use uuid::Uuid;
@@ -48,15 +53,28 @@ pub enum IdentityProvider {
     Facebook,
 }
 
+impl From<IdentityProvider> for Bytes {
+    fn from(id: IdentityProvider) -> Self {
+        <&str as Into<Bytes>>::into(match id {
+            IdentityProvider::Google => "google",
+            IdentityProvider::GitHub => "github",
+            IdentityProvider::Twitch => "twitch",
+            IdentityProvider::Reddit => "reddit",
+            IdentityProvider::Twitter => "twitter",
+            IdentityProvider::Discord => "discord",
+            IdentityProvider::Facebook => "facebook",
+        })
+    }
+}
+
 /// User represents a user of any one of the swaply products. A user may be
 /// authenticated with swaply itself, or with one of the supported
 /// authentication providers.
 #[derive(Serialize, Deserialize, Debug)]
 pub struct User<'a> {
-    /// The ID of the user - if a user is being inserted into the database,
-    /// this field may be omitted, as an ID is assigned by the database to the
-    /// user.
-    id: Option<Uuid>,
+    /// The ID of the user - this field may never be omitted, as the server
+    /// must generate a UID for the user.
+    id: Uuid,
 
     /// The username associated with this user - this field may not be omitted
     /// safely.
@@ -108,7 +126,7 @@ impl<'a> User<'a> {
         password_hash: Option<&'a [u8; 32]>,
     ) -> Self {
         Self {
-            id,
+            id: id.unwrap_or_else(Uuid::new_v4),
             username,
             email,
             identities,
@@ -128,8 +146,8 @@ impl<'a> User<'a> {
     /// let u = User::new(None, "test", "test@test.com", HashMap::new(), None);
     /// assert_eq!(u.id(), None);
     /// ```
-    pub fn id(&self) -> Option<&Uuid> {
-        self.id.as_ref()
+    pub fn id(&self) -> &Uuid {
+        &self.id
     }
 
     /// Gets the username of the Swaply user.
@@ -221,6 +239,19 @@ impl<'a> User<'a> {
     }
 }
 
+impl<'a> Into<QueryValues> for User<'a> {
+    fn into(self) -> QueryValues {
+        query_values!(
+            "id" => self.id,
+            "username" => self.username,
+            "email" => self.email,
+            "identities" => self.identities,
+            "password_hash" => self.password_hash,
+            "registered_at" => self.registered_at
+        )
+    }
+}
+
 /// Creates the necessary keyspace to store users.
 ///
 /// # Arguments
@@ -260,7 +291,7 @@ pub async fn create_keyspace(session: &mut DbSession) -> CDRSResult<()> {
                 identities MAP<TEXT, TEXT>,
                 password_hash TEXT,
                 registered_at TIMESTAMP,
-                PRIMARY KEY (id, username)
+                PRIMARY KEY ((username, email), id, username)
             );
         "#,
         )
