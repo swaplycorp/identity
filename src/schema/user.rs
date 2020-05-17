@@ -359,24 +359,35 @@ impl<'a> IntoQueryValues for User<'a> {
     }
 }
 
-impl From<OwnedUser> for User<'a> {
+impl<'a> From<OwnedUser> for User<'a> {
     fn from(u: OwnedUser) -> Self {
-        Self::new(u.id, u.username, u.email, u.identities, u.password_hash, u.registered_at)
+        Self::new(
+            Some(u.id),
+            u.username.as_ref(),
+            u.email.as_ref(),
+            u.identities.0,
+            array_ref![u.password_hash.as_slice(), 0, 32],
+            Some(u.registered_at),
+        )
     }
 }
 
+/// IdentityMap represents any arbitrary number of mappings between identity providers and their
+/// respective identity values (e.g., id numbers / JWTs).
+struct IdentityMap<'a>(HashMap<IdentityProvider, &'a str>);
+
 /// OwnedUser represents a user stored inline.
-struct OwnedUser {
+struct OwnedUser<'a> {
     id: Uuid,
     username: String,
     email: String,
-    identities: HashMap<String, String>,
+    identities: IdentityMap<'a>,
     password_hash: Vec<u8>,
     registered_at: Timespec,
 }
 
 impl<'a> TryFromRow for User<'a> {
-    fn try_from_row(row: Row) -> CDRSResult<Self> { 
+    fn try_from_row(row: Row) -> CDRSResult<Self> {
         let user = OwnedUser {
             id: row.get_r_by_index(0)?,
             username: row.get_r_by_index(1)?,
