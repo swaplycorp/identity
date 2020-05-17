@@ -9,7 +9,7 @@ use cdrs::{
     },
     Result as CDRSResult,
 };
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Utc, offset::TimeZone};
 use serde::{Deserialize, Serialize};
 use time::Timespec;
 use uuid::Uuid;
@@ -359,7 +359,7 @@ impl<'a> IntoQueryValues for User<'a> {
     }
 }
 
-impl<'a> From<OwnedUser> for User<'a> {
+impl<'a> From<OwnedUser<'a>> for User<'a> {
     fn from(u: OwnedUser) -> Self {
         Self::new(
             Some(u.id),
@@ -367,7 +367,8 @@ impl<'a> From<OwnedUser> for User<'a> {
             u.email.as_ref(),
             u.identities.0,
             array_ref![u.password_hash.as_slice(), 0, 32],
-            Some(u.registered_at),
+            Utc.ymd(1970, 1, 1)
+                .and_hms_nano(0, u.registered_at.sec / 60, u.registered_at.sec % 60, u.registered_at.nsec),
         )
     }
 }
