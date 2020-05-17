@@ -18,6 +18,7 @@ dotenv = "0.15.0"
 tokio = "0.2.20"
 futures-util = "0.3.5"
 bincode = "1.2.1"
+bs58 = "0.3.1"
 
 [lib]
 name = "swaply_identity"

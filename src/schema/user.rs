@@ -1,15 +1,14 @@
+use bincode::Error as BincodeError;
+use bs58::encode::Error as Bs58EncodingError;
 use cdrs::{
     error,
-    frame::traits::{IntoQueryValues, TryFromRow},
+    frame::traits::TryFromRow,
     query::{QueryExecutor, QueryValues},
     query_values,
-    types::{
-        blob::Blob, from_cdrs::FromCDRS, map::Map, prelude::Row, value::Bytes, AsRustType,
-        IntoRustByIndex,
-    },
+    types::{blob::Blob, map::Map, prelude::Row, value::Bytes, AsRustType, IntoRustByIndex},
     Result as CDRSResult,
 };
-use chrono::{DateTime, Utc, offset::TimeZone};
+use chrono::{naive::NaiveDateTime, DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use time::Timespec;
 use uuid::Uuid;
@@ -19,6 +18,9 @@ use super::super::DbSession;
 use std::{
     collections::HashMap,
     convert::{TryFrom, TryInto},
+    error::Error,
+    fmt,
+    num::TryFromIntError,
 };
 
 /// IdentityProvider represents any arbitrary provider of an authorization or
@@ -130,6 +132,53 @@ impl TryFrom<&str> for IdentityProvider {
     }
 }
 
+/// RegistrationTimestamp represents a timestamp for a user registration (UTC).
+#[derive(Debug)]
+pub struct RegistrationTimestamp(Timespec);
+
+impl Serialize for 
+
+impl From<&RegistrationTimestamp> for DateTime<Utc> {
+    fn from(timestamp: &RegistrationTimestamp) -> Self {
+        DateTime::<Utc>::from_utc(
+            NaiveDateTime::from_timestamp(timestamp.0.sec, timestamp.0.nsec as u32),
+            Utc,
+        )
+    }
+}
+
+impl From<RegistrationTimestamp> for DateTime<Utc> {
+    fn from(timestamp: RegistrationTimestamp) -> Self {
+        <&RegistrationTimestamp as Into<DateTime<Utc>>>::into(&timestamp)
+    }
+}
+
+impl TryFrom<DateTime<Utc>> for RegistrationTimestamp {
+    type Error = TryFromIntError;
+
+    fn try_from(timestamp: DateTime<Utc>) -> Result<Self, Self::Error> {
+        Ok(Self(Timespec {
+            sec: timestamp.timestamp(),
+            nsec: timestamp.timestamp_subsec_nanos().try_into()?,
+        }))
+    }
+}
+
+impl TryFrom<RegistrationTimestamp> for Bytes {
+    type Error = BincodeError;
+
+    fn try_from(timestamp: RegistrationTimestamp) -> Result<Self, Self::Error> {
+        Ok(Self::new(bincode::serialize(&timestamp)?))
+    }
+}
+
+impl IntoRustByIndex<RegistrationTimestamp> for Row {
+    fn get_by_index(&self, index: usize) -> CDRSResult<Option<RegistrationTimestamp>> {
+        Ok(<Self as IntoRustByIndex<Blob>>::get_by_index(self, index)?
+            .and_then(|bytes| bincode::deserialize(bytes.into_vec().as_slice()).ok()))
+    }
+}
+
 /// User represents a user of any one of the swaply products. A user may be
 /// authenticated with swaply itself, or with one of the supported
 /// authentication providers.
@@ -159,7 +208,7 @@ pub struct User<'a> {
     password_hash: &'a [u8],
 
     /// The time at which this user was registered.
-    registered_at: DateTime<Utc>,
+    registered_at: RegistrationTimestamp,
 }
 
 impl<'a> User<'a> {
@@ -199,7 +248,9 @@ impl<'a> User<'a> {
             email,
             identities,
             password_hash,
-            registered_at: registered_at.unwrap_or_else(Utc::now),
+            registered_at: registered_at
+                .map(|timestamp| timestamp.into())
+                .unwrap_or_else(|| Utc::now().into()),
         }
     }
 
@@ -338,58 +389,172 @@ impl<'a> User<'a> {
     /// u.registered_at(); // An ISO 8601 timestamp representing the time at which u was created
     /// ```
     pub fn registered_at(&self) -> DateTime<Utc> {
-        self.registered_at
+        self.registered_at.0
+    }
+
+    /// Inserts the user into the database indicated by the given session.
+    ///
+    /// # Arguments
+    ///
+    /// * `session` - The syclla db connector that should be used
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cdrs::{authenticators::StaticPasswordAuthenticator, cluster::{NodeTcpConfigBuilder, ClusterTcpConfig}, load_balancing::RoundRobin};
+    /// use std::{env, error::Error, collections::HashMap};
+    /// use swaply_identity::schema::user::User;
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn Error>> {
+    /// # dotenv::dotenv()?;
+    ///
+    /// let db_node = env::var("SCYLLA_NODE_URL")?;
+    ///
+    /// let auth = StaticPasswordAuthenticator::new(env::var("SCYLLA_USERNAME")?, env::var("SCYLLA_PASSWORD")?);
+    /// let node = NodeTcpConfigBuilder::new(&db_node, auth).build();
+    /// let cluster_config = ClusterTcpConfig(vec![node]);
+    /// let mut session = cdrs::cluster::session::new(&cluster_config, RoundRobin::new()).await?;
+    ///
+    /// swaply_identity::create_keyspace(&mut session).await?;
+    /// swaply_identity::schema::user::create_tables(&mut session).await?;
+    ///
+    /// let password_hash = blake3::hash(b"123456");
+    ///
+    /// let u = User::new(None, "test", "test@test.com", HashMap::new(), password_hash.as_bytes(), None);
+    /// u.insert_into_table(&mut session).await?;
+    ///
+    /// Ok(())
+    /// # }
+    /// ```
+    pub async fn insert_into_table(self, session: &mut DbSession) -> CDRSResult<()> {
+        session.query_with_values(r#"
+            INSERT INTO identity.users (id, username, email, identities, password_hash, registered_at)
+                VALUES (?, ?, ?, ?, ?, ?);
+        "#, <Self as TryInto<QueryValues>>::try_into(self).map_err(|e| e.to_string())?).await.map(|_| ())
     }
 }
 
-impl<'a> IntoQueryValues for User<'a> {
-    fn into_query_values(self) -> QueryValues {
-        query_values!(
-            "id" => self.id,
-            "username" => self.username,
-            "email" => self.email,
-            "identities" => self.identities,
-            "password_hash" => self.password_hash.to_vec(),
-            "registered_at" => {
-                let n_nanoseconds = self.registered_at.timestamp_nanos();
+#[derive(Debug)]
+pub enum ConvertUserToQueryValuesError {
+    SerializationError(BincodeError),
+    EncodingError(bs58::encode::Error),
+}
 
-                Timespec::new(n_nanoseconds / 1_000_000_000, (n_nanoseconds % 1_000_000_000) as i32)
-            }
+impl From<BincodeError> for ConvertUserToQueryValuesError {
+    fn from(e: BincodeError) -> Self {
+        Self::SerializationError(e)
+    }
+}
+
+impl From<Bs58EncodingError> for ConvertUserToQueryValuesError {
+    fn from(e: Bs58EncodingError) -> Self {
+        Self::EncodingError(e)
+    }
+}
+
+impl fmt::Display for ConvertUserToQueryValuesError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "encountered an error while {}: {:?}",
+            match self {
+                Self::SerializationError(_) => "serializing the user: {}",
+                Self::EncodingError(_) => "encoding the serialized user to base58: {}",
+            },
+            self.source().map(|e| e.to_string())
         )
     }
 }
 
-impl<'a> From<OwnedUser<'a>> for User<'a> {
-    fn from(u: OwnedUser) -> Self {
+impl Error for ConvertUserToQueryValuesError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::SerializationError(e) => Some(e),
+            Self::EncodingError(e) => Some(e),
+        }
+    }
+}
+
+impl TryFrom<User<'_>> for QueryValues {
+    type Error = ConvertUserToQueryValuesError;
+
+    fn try_from(u: User) -> Result<Self, Self::Error> {
+        Ok(query_values!(
+            "id" => u.id,
+            "username" => u.username,
+            "email" => u.email,
+            "identities" => u.identities,
+            "password_hash" => bs58::encode(u.password_hash.to_vec()).into_string(),
+            "registered_at" => <RegistrationTimestamp as TryInto<Bytes>>::try_into(u.registered_at)?
+        ))
+    }
+}
+
+impl<'a> From<&'a OwnedUser> for User<'a> {
+    fn from(u: &'a OwnedUser) -> Self {
+        // We're going to try to reference data from an OwnedUser
+        let mut identities_ref: HashMap<IdentityProvider, &'a str> = HashMap::new();
+        u.identities
+            .0
+            .keys()
+            .into_iter()
+            .zip(u.identities.0.values().into_iter())
+            .map(|(key, value)| identities_ref.insert(*key, value))
+            .for_each(drop);
+
         Self::new(
             Some(u.id),
             u.username.as_ref(),
             u.email.as_ref(),
-            u.identities.0,
+            identities_ref,
             array_ref![u.password_hash.as_slice(), 0, 32],
-            Utc.ymd(1970, 1, 1)
-                .and_hms_nano(0, u.registered_at.sec / 60, u.registered_at.sec % 60, u.registered_at.nsec),
+            Some(u.registered_at.0),
         )
     }
 }
 
 /// IdentityMap represents any arbitrary number of mappings between identity providers and their
 /// respective identity values (e.g., id numbers / JWTs).
-struct IdentityMap<'a>(HashMap<IdentityProvider, &'a str>);
+#[derive(Debug)]
+struct IdentityMap(HashMap<IdentityProvider, String>);
 
-/// OwnedUser represents a user stored inline.
-struct OwnedUser<'a> {
+impl AsRustType<IdentityMap> for Map {
+    fn as_rust_type(&self) -> CDRSResult<Option<IdentityMap>> {
+        let identities: HashMap<String, String> =
+            <Self as AsRustType<HashMap<String, String>>>::as_rust_type(self)?
+                .ok_or(error::column_is_empty_err("identities"))?;
+
+        // Now, we're going to move all of the values from the identities hashmap to the
+        // fixed_identities hashmap, after converting each of the keys to IdentityProviders
+        let mut fixed_identities: IdentityMap = IdentityMap(HashMap::new());
+        identities
+            .into_iter()
+            .map(|(key, value)| {
+                key.try_into()
+                    .map(|key| fixed_identities.0.insert(key, value))
+            })
+            .filter_map(Result::ok)
+            .for_each(drop);
+
+        Ok(Some(fixed_identities))
+    }
+}
+
+/// OwnedUser represents an allocated user.
+#[derive(Debug)]
+pub struct OwnedUser {
     id: Uuid,
     username: String,
     email: String,
-    identities: IdentityMap<'a>,
+    identities: IdentityMap,
     password_hash: Vec<u8>,
-    registered_at: Timespec,
+    registered_at: RegistrationTimestamp,
 }
 
-impl<'a> TryFromRow for User<'a> {
+impl TryFromRow for OwnedUser {
     fn try_from_row(row: Row) -> CDRSResult<Self> {
-        let user = OwnedUser {
+        Ok(OwnedUser {
             id: row.get_r_by_index(0)?,
             username: row.get_r_by_index(1)?,
             email: row.get_r_by_index(2)?,
@@ -398,9 +563,7 @@ impl<'a> TryFromRow for User<'a> {
                 .ok_or(error::column_is_empty_err(3))?,
             password_hash: <Row as IntoRustByIndex<Blob>>::get_r_by_index(&row, 4)?.into_vec(),
             registered_at: row.get_r_by_index(5)?,
-        };
-
-        Ok()
+        })
     }
 }
 
@@ -427,6 +590,7 @@ impl<'a> TryFromRow for User<'a> {
 /// let cluster_config = ClusterTcpConfig(vec![node]);
 /// let mut session = cdrs::cluster::session::new(&cluster_config, RoundRobin::new()).await?;
 ///
+/// swaply_identity::create_keyspace(&mut session).await?;
 /// swaply_identity::schema::user::create_tables(&mut session).await?;
 ///
 /// Ok(())
