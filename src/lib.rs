@@ -3,9 +3,6 @@
 #[macro_use]
 extern crate arrayref;
 
-#[macro_use]
-extern crate cdrs_helpers_derive;
-
 use cdrs::{
     authenticators::StaticPasswordAuthenticator,
     cluster::{session::Session, TcpConnectionPool},

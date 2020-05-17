@@ -1,8 +1,12 @@
 use cdrs::{
+    error,
+    frame::traits::{IntoQueryValues, TryFromRow},
     query::{QueryExecutor, QueryValues},
     query_values,
-    types::{value::{Bytes, rows::Row}, from_cdrs::FromCDRS},
-    frame::traits::{IntoQueryValues},
+    types::{
+        blob::Blob, from_cdrs::FromCDRS, map::Map, prelude::Row, value::Bytes, AsRustType,
+        IntoRustByIndex,
+    },
     Result as CDRSResult,
 };
 use chrono::{DateTime, Utc};
@@ -102,6 +106,14 @@ impl From<IdentityProvider> for &str {
     }
 }
 
+impl TryFrom<String> for IdentityProvider {
+    type Error = IntoIdentityProviderError;
+
+    fn try_from(s: String) -> Result<Self, Self::Error> {
+        <Self as TryFrom<&str>>::try_from(&s)
+    }
+}
+
 impl TryFrom<&str> for IdentityProvider {
     type Error = IntoIdentityProviderError;
 
@@ -116,17 +128,6 @@ impl TryFrom<&str> for IdentityProvider {
             _ => Err(Self::Error::InvalidProvider),
         }
     }
-}
-
-/// Cdrs was written by a boomer who doesn't know how pointers work, so I have to do this.
-#[derive(Debug, TryFromRow)]
-struct OwnedUser {
-    id: Uuid,
-    username: String,
-    email: String,
-    identities: HashMap<String, String>,
-    password_hash: Vec<u8>,
-    registered_at: Timespec
 }
 
 /// User represents a user of any one of the swaply products. A user may be
@@ -358,9 +359,36 @@ impl<'a> IntoQueryValues for User<'a> {
     }
 }
 
+impl From<OwnedUser> for User<'a> {
+    fn from(u: OwnedUser) -> Self {
+        Self::new(u.id, u.username, u.email, u.identities, u.password_hash, u.registered_at)
+    }
+}
+
+/// OwnedUser represents a user stored inline.
+struct OwnedUser {
+    id: Uuid,
+    username: String,
+    email: String,
+    identities: HashMap<String, String>,
+    password_hash: Vec<u8>,
+    registered_at: Timespec,
+}
+
 impl<'a> TryFromRow for User<'a> {
-    fn try_from_row(row: Row) -> CDRSResult<Self> {
-        
+    fn try_from_row(row: Row) -> CDRSResult<Self> { 
+        let user = OwnedUser {
+            id: row.get_r_by_index(0)?,
+            username: row.get_r_by_index(1)?,
+            email: row.get_r_by_index(2)?,
+            identities: <Row as IntoRustByIndex<Map>>::get_r_by_index(&row, 3)?
+                .as_rust_type()?
+                .ok_or(error::column_is_empty_err(3))?,
+            password_hash: <Row as IntoRustByIndex<Blob>>::get_r_by_index(&row, 4)?.into_vec(),
+            registered_at: row.get_r_by_index(5)?,
+        };
+
+        Ok()
     }
 }
 
