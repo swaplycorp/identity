@@ -10,9 +10,7 @@ use cdrs::{
 };
 use chrono::{naive::NaiveDateTime, DateTime, Utc};
 use serde::{
-    de::{self, Visitor},
-    ser::SerializeTupleStruct,
-    Deserialize, Serialize, Serializer,
+    Deserialize, Serialize,
 };
 use time::Timespec;
 use uuid::Uuid;
@@ -136,6 +134,9 @@ impl TryFrom<&str> for IdentityProvider {
     }
 }
 
+/* Timespecs themselves don't implement conversions to and from cdrs types (i.e., Bytes), so we
+ * need to do it ourselves by rolling a custom RegistrationTimestamp struct. */
+
 /// RegistrationTimestamp represents a timestamp for a user registration (UTC).
 #[derive(Copy, Clone, Default, Serialize, Deserialize, Debug)]
 pub struct RegistrationTimestamp {
@@ -156,6 +157,17 @@ impl RegistrationTimestamp {
     }
 }
 
+// Conversion from a Timespec to a RegistrationTimestamp
+impl From<Timespec> for RegistrationTimestamp {
+    fn from(timestamp: Timespec) -> Self {
+        Self{
+            sec: timestamp.sec,
+            nsec: timestamp.nsec,
+        }
+    }
+}
+
+// Conversion from a RegistrationTimestamp to a Timespec
 impl From<&RegistrationTimestamp> for Timespec {
     fn from(timestamp: &RegistrationTimestamp) -> Self {
         Self {
@@ -165,12 +177,15 @@ impl From<&RegistrationTimestamp> for Timespec {
     }
 }
 
+// In case you want to convert from an owned RegistrationTimestamp to a Timespec
 impl From<RegistrationTimestamp> for Timespec {
     fn from(timestamp: RegistrationTimestamp) -> Self {
         <&RegistrationTimestamp as Into<Timespec>>::into(&timestamp)
     }
 }
 
+// Conversion from a RegistrationTimestamp to a DateTime (preferred representation in rust code,
+// since it has a really nice API)
 impl From<&RegistrationTimestamp> for DateTime<Utc> {
     fn from(timestamp: &RegistrationTimestamp) -> Self {
         DateTime::<Utc>::from_utc(
@@ -186,6 +201,8 @@ impl From<RegistrationTimestamp> for DateTime<Utc> {
     }
 }
 
+// However, DateTime uses differently sized sec and nsec nums, so we need to do very careful
+// conversion between the two
 impl TryFrom<DateTime<Utc>> for RegistrationTimestamp {
     type Error = TryFromIntError;
 
@@ -197,20 +214,8 @@ impl TryFrom<DateTime<Utc>> for RegistrationTimestamp {
     }
 }
 
-impl TryFrom<RegistrationTimestamp> for Bytes {
-    type Error = BincodeError;
-
-    fn try_from(timestamp: RegistrationTimestamp) -> Result<Self, Self::Error> {
-        Ok(Self::new(bincode::serialize(&timestamp)?))
-    }
-}
-
-impl IntoRustByIndex<RegistrationTimestamp> for Row {
-    fn get_by_index(&self, index: usize) -> CDRSResult<Option<RegistrationTimestamp>> {
-        Ok(<Self as IntoRustByIndex<Blob>>::get_by_index(self, index)?
-            .and_then(|bytes| bincode::deserialize(bytes.into_vec().as_slice()).ok()))
-    }
-}
+// NOTE: We don't implement direct conversion from the RegistrationTimestamp type to rows
+// themselves, since we use Timespec as an intermediary type that does implement such features
 
 /// User represents a user of any one of the swaply products. A user may be
 /// authenticated with swaply itself, or with one of the supported
@@ -602,7 +607,7 @@ impl TryFromRow for OwnedUser {
                 .as_rust_type()?
                 .ok_or(error::column_is_empty_err(3))?,
             password_hash: <Row as IntoRustByIndex<Blob>>::get_r_by_index(&row, 4)?.into_vec(),
-            registered_at: row.get_r_by_index(5)?,
+            registered_at: <Timespec as Into<RegistrationTimestamp>>::into(row.get_r_by_index(5)?),
         })
     }
 }
