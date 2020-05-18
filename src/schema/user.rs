@@ -9,7 +9,11 @@ use cdrs::{
     Result as CDRSResult,
 };
 use chrono::{naive::NaiveDateTime, DateTime, Utc};
-use serde::{Deserialize, Serialize};
+use serde::{
+    de::{self, Visitor},
+    ser::SerializeTupleStruct,
+    Deserialize, Serialize, Serializer,
+};
 use time::Timespec;
 use uuid::Uuid;
 
@@ -133,15 +137,44 @@ impl TryFrom<&str> for IdentityProvider {
 }
 
 /// RegistrationTimestamp represents a timestamp for a user registration (UTC).
-#[derive(Debug)]
-pub struct RegistrationTimestamp(Timespec);
+#[derive(Copy, Clone, Default, Serialize, Deserialize, Debug)]
+pub struct RegistrationTimestamp {
+    sec: i64,
+    nsec: i32,
+}
 
-impl Serialize for 
+impl RegistrationTimestamp {
+    /// Gets the number of whole seconds since January 1, 1970 represented by this timestamp.
+    pub fn seconds(&self) -> i64 {
+        self.sec
+    }
+
+    /// Gets the number of remaining nanoseconds since January 1, 1970 represented by this
+    /// timestamp.
+    pub fn nanoseconds(&self) -> i32 {
+        self.nsec
+    }
+}
+
+impl From<&RegistrationTimestamp> for Timespec {
+    fn from(timestamp: &RegistrationTimestamp) -> Self {
+        Self {
+            sec: timestamp.sec,
+            nsec: timestamp.nsec,
+        }
+    }
+}
+
+impl From<RegistrationTimestamp> for Timespec {
+    fn from(timestamp: RegistrationTimestamp) -> Self {
+        <&RegistrationTimestamp as Into<Timespec>>::into(&timestamp)
+    }
+}
 
 impl From<&RegistrationTimestamp> for DateTime<Utc> {
     fn from(timestamp: &RegistrationTimestamp) -> Self {
         DateTime::<Utc>::from_utc(
-            NaiveDateTime::from_timestamp(timestamp.0.sec, timestamp.0.nsec as u32),
+            NaiveDateTime::from_timestamp(timestamp.sec, timestamp.nsec as u32),
             Utc,
         )
     }
@@ -157,10 +190,10 @@ impl TryFrom<DateTime<Utc>> for RegistrationTimestamp {
     type Error = TryFromIntError;
 
     fn try_from(timestamp: DateTime<Utc>) -> Result<Self, Self::Error> {
-        Ok(Self(Timespec {
+        Ok(Self {
             sec: timestamp.timestamp(),
             nsec: timestamp.timestamp_subsec_nanos().try_into()?,
-        }))
+        })
     }
 }
 
@@ -249,8 +282,12 @@ impl<'a> User<'a> {
             identities,
             password_hash,
             registered_at: registered_at
-                .map(|timestamp| timestamp.into())
-                .unwrap_or_else(|| Utc::now().into()),
+                .map(|timestamp| timestamp.try_into().unwrap_or_default())
+                .unwrap_or_else(|| {
+                    Utc::now()
+                        .try_into()
+                        .unwrap_or(RegistrationTimestamp::default())
+                }),
         }
     }
 
@@ -389,7 +426,10 @@ impl<'a> User<'a> {
     /// u.registered_at(); // An ISO 8601 timestamp representing the time at which u was created
     /// ```
     pub fn registered_at(&self) -> DateTime<Utc> {
-        self.registered_at.0
+        DateTime::<Utc>::from_utc(
+            NaiveDateTime::from_timestamp(self.registered_at.sec, self.registered_at.nsec as u32),
+            Utc,
+        )
     }
 
     /// Inserts the user into the database indicated by the given session.
@@ -486,7 +526,7 @@ impl TryFrom<User<'_>> for QueryValues {
             "email" => u.email,
             "identities" => u.identities,
             "password_hash" => bs58::encode(u.password_hash.to_vec()).into_string(),
-            "registered_at" => <RegistrationTimestamp as TryInto<Bytes>>::try_into(u.registered_at)?
+            "registered_at" => <&RegistrationTimestamp as Into<Timespec>>::into(&u.registered_at)
         ))
     }
 }
@@ -503,14 +543,14 @@ impl<'a> From<&'a OwnedUser> for User<'a> {
             .map(|(key, value)| identities_ref.insert(*key, value))
             .for_each(drop);
 
-        Self::new(
-            Some(u.id),
-            u.username.as_ref(),
-            u.email.as_ref(),
-            identities_ref,
-            array_ref![u.password_hash.as_slice(), 0, 32],
-            Some(u.registered_at.0),
-        )
+        Self {
+            id: u.id,
+            username: u.username.as_ref(),
+            email: u.email.as_ref(),
+            identities: identities_ref,
+            password_hash: array_ref![u.password_hash.as_slice(), 0, 32],
+            registered_at: u.registered_at,
+        }
     }
 }
 
