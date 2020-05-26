@@ -14,6 +14,9 @@ use cdrs::{
 /// Schema describes the swaply identity service database schema.
 pub mod schema;
 
+/// Server implements a capnproto RPC and REST/JSON-HTTP identity service server.
+pub mod server;
+
 /// DbSession represents a Scylla database session.
 pub type DbSession = Session<RoundRobin<TcpConnectionPool<StaticPasswordAuthenticator>>>;
 
