@@ -214,9 +214,6 @@ impl TryFrom<DateTime<Utc>> for RegistrationTimestamp {
     }
 }
 
-// NOTE: We don't implement direct conversion from the RegistrationTimestamp type to rows
-// themselves, since we use Timespec as an intermediary type that does implement such features
-
 /// User represents a user of any one of the swaply products. A user may be
 /// authenticated with swaply itself, or with one of the supported
 /// authentication providers.
@@ -234,7 +231,7 @@ pub struct User<'a> {
     /// safely.
     email: &'a str,
 
-    /// Each of the third party identity providers that the user chosen to
+    /// Each of the third party identity providers that the user has chosen to
     /// connect to their account.
     identities: HashMap<IdentityProvider, &'a str>,
 
@@ -538,7 +535,12 @@ impl TryFrom<User<'_>> for QueryValues {
 
 impl<'a> From<&'a OwnedUser> for User<'a> {
     fn from(u: &'a OwnedUser) -> Self {
-        // We're going to try to reference data from an OwnedUser
+        // We're going to try to reference data from an OwnedUser, but this necessitates making a
+        // copy of the original map with referenced keys and values.
+        //
+        // NOTE: This operation is O(n) where n is the number of 3rd party identity providers. It's
+        // possible that there is a better way of doing this, but this works fine for now, keeping
+        // in mind the fact that there is a limited number of identity providers.
         let mut identities_ref: HashMap<IdentityProvider, &'a str> = HashMap::new();
         u.identities
             .0
@@ -571,7 +573,13 @@ impl AsRustType<IdentityMap> for Map {
                 .ok_or(error::column_is_empty_err("identities"))?;
 
         // Now, we're going to move all of the values from the identities hashmap to the
-        // fixed_identities hashmap, after converting each of the keys to IdentityProviders
+        // fixed_identities hashmap, after converting each of the keys to IdentityProviders.
+        //
+        // "Fixing" identities is essentially a two step process, since we have to own the values
+        // somewhere:
+        //
+        // 1. Converting the keys in identities to IdentityProvider instances
+        // 2. Converting the values identities to String references
         let mut fixed_identities: IdentityMap = IdentityMap(HashMap::new());
         identities
             .into_iter()
