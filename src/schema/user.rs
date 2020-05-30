@@ -605,6 +605,46 @@ pub struct OwnedUser {
     registered_at: RegistrationTimestamp,
 }
 
+impl OwnedUser {
+    /// Converts a database row into an allocated User.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use swaply_identity::schema::user::{OwnedUser, User};
+    /// use cdrs::{authenticators::StaticPasswordAuthenticator, cluster::{NodeTcpConfigBuilder, ClusterTcpConfig}, load_balancing::RoundRobin, frame::traits::TryFromRow};
+    /// use std::{env, error::Error, collections::HashMap};
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn Error>> {
+    /// # dotenv::dotenv()?;
+    ///
+    /// let db_node = env::var("SCYLLA_NODE_URL")?;
+    ///
+    /// let auth = StaticPasswordAuthenticator::new(env::var("SCYLLA_USERNAME")?, env::var("SCYLLA_PASSWORD")?);
+    /// let node = NodeTcpConfigBuilder::new(&db_node, auth).build();
+    /// let cluster_config = ClusterTcpConfig(vec![node]);
+    /// let mut session = cdrs::cluster::session::new(&cluster_config, RoundRobin::new()).await?;
+    ///
+    /// swaply_identity::create_keyspace(&mut session).await?;
+    /// swaply_identity::schema::user::create_tables(&mut session).await?;
+    ///
+    /// let password_hash = blake3::hash(b"123456");
+    ///
+    /// let u = User::new(None, "test", "test@test.com", HashMap::new(), password_hash.as_bytes(), None);
+    /// u.insert_into_table(&mut session).await?;
+    ///
+    /// let user_from_db = OwnedUser::try_from_row(session.query("SELECT * FROM "))
+    ///
+    /// Ok(())
+    /// # }
+
+    /// ```
+    pub async fn read_from_table(session: &mut DbSession, ) -> CDRSResult<Self> {
+        Self::try_from_row(session.query("SELECT * FROM identity.users WHERE id = ")) 
+    }
+}
+
 impl TryFromRow for OwnedUser {
     fn try_from_row(row: Row) -> CDRSResult<Self> {
         Ok(OwnedUser {
