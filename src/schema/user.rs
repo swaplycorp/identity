@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use time::Timespec;
 use uuid::Uuid;
 
-use super::super::{error::QueryError, result::Result as IdentityResult, DbSession};
+use super::super::{error::QueryError, result::Result as IdentityResult, DbSession, db::{Provider, scylla::{Scylla, InTable}}};
 
 use std::{
     collections::HashMap,
@@ -473,6 +473,14 @@ impl<'a> User<'a> {
                 VALUES (?, ?, ?, ?, ?, ?);
         "#, <Self as TryInto<QueryValues>>::try_into(self).map_err(|e| e.to_string())?).await.map(|_| ()).into()
     }
+}
+
+impl<'a> InTable for User<'a> {
+   const KEYSPACE: &'static str = "identity";
+
+   const TABLE: &'static str = "users";
+
+   const COLUMNS: &'static str = "(id, username, email, identities, password_hash, registered_at)";
 }
 
 #[derive(Debug)]

@@ -3,10 +3,11 @@ use cdrs::{
     frame::traits::TryFromRow,
     query::{QueryExecutor, QueryValues},
 };
+use regex::Regex;
 
 use super::{
     super::{
-        error::{Error as IdentityError, QueryError},
+        error::{Error as IdentityError, InsertionError, QueryError},
         result::IdentityResult,
         DbSession,
     },
@@ -24,8 +25,9 @@ pub trait InTable {
     /// The table that the struct should be stored in.
     const TABLE: &'static str;
 
-    /// The columns contained in the struct
-    const COLUMNS: &'static [&'static str];
+    /// The columns contained in the struct represented in the following form: "(column1, colum2,
+    /// etc...)"
+    const COLUMNS: &'static str;
 
     /// Creates any associated tables necessary for operation.
     async fn create_tables(session: &mut DbSession) -> IdentityResult<()>;
@@ -54,14 +56,15 @@ impl Scylla {
 // 4. Specify the names of their keyspace, table, and columns
 // 5. Return an error that can be converted into an IdentityError when converting the initial
 //    struct into a CDRS QueryValues instance
+// 6. Implement conversion from a database row to a struct instance.
+//
+// NOTE: Two types may be used for storage and for insertion. As such, load_record and
+// insert_record refer to different kinds of values, with lesser and greater constraints.
 #[async_trait]
-impl<K: Queryable<Self>, V: TryFromRow + TryInto<QueryValues> + InTable> Provider<V> for Scylla
-where
-    <V as TryInto<QueryValues>>::Error: Into<IdentityError>,
-{
+impl<K: Queryable<Self>> Provider for Scylla {
     type QueryType = K;
 
-    async fn load_record(&self, q: K) -> IdentityResult<V> {
+    async fn load_record<V: TryFromRow>(&self, q: K) -> IdentityResult<V> {
         self.session
             // Allow the struct impelemting conversion to construct a query
             .query(q.to_query())
@@ -78,7 +81,15 @@ where
             .map_err(|e| e.into())
     }
 
-    async fn insert_record(&self, v: V) -> IdentityResult<()> {
+    /// Inserts a struct into the scylla database via the working session. Insertion is
+    /// automatically supported for structs that:
+    /// - Implement conversion into a CDRS QueryValues instance
+    /// - Return an Error type that may be converted into an IdentityError upon such conversion
+    /// - Specify their keyspace, table, and columns via an implementation of InTable
+    async fn insert_record<V: TryInto<QueryValues> + InTable>(&self, v: V) -> IdentityResult<()>
+    where
+        <V as TryInto<QueryValues>>::Error: Into<IdentityError>,
+    {
         self.session
             .query_with_values(
                 // Formulate a query that inserts the given struct into its:
@@ -89,14 +100,15 @@ where
                     r#"INSERT INTO {}.{} ({}) VALUES ({});"#,
                     V::KEYSPACE,
                     V::TABLE,
-                    V::COLUMNS.join(", "),
-                    V::COLUMNS
-                        .iter()
-                        .map(|_| "?")
-                        .collect::<Vec<&'static str>>()
-                        .join(", ")
+                    V::COLUMNS,
+                    // Replace all column names with ? marks, since we'll entrust CDRS with
+                    // converting the respective values for us
+                    Regex::new(r#"[^\(\), ]"#)
+                        .map_err(|e| <InsertionError as Into<IdentityError>>::into(
+                            InsertionError::RegexError(e)
+                        ))?
+                        .replace_all(V::COLUMNS, "?")
                 ),
-
                 // The struct being inserted must return a type that can be converted to an
                 // IdentityError when the struct is converted to a QueryValues instance. As such,
                 // we can convert the error that the struct returns upon conversion to the desired

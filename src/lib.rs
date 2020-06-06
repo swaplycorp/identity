@@ -28,9 +28,9 @@ pub type DbSession = Session<RoundRobin<TcpConnectionPool<StaticPasswordAuthenti
 
 /// Result implements helpful error types.
 pub mod result {
-    use cdrs::Result as CDRSResult;
-    use std::result::{Result as StdResult};
     use super::error::Error;
+    use cdrs::Result as CDRSResult;
+    use std::result::Result as StdResult;
 
     /// IdentityResult represents the result of a computation that may or may not fail.
     pub type IdentityResult<T> = StdResult<T, Error>;
@@ -59,15 +59,22 @@ pub mod result {
 
 pub mod error {
     use cdrs::error::Error as CDRSError;
+    use regex::Error as RegexError;
 
     /// Error represents any error emitted by the swaply identity service.
     pub enum Error {
-        QueryError(QueryError), 
+        QueryError(QueryError),
     }
 
     impl From<QueryError> for Error {
         fn from(e: QueryError) -> Error {
             Self::QueryError(e)
+        }
+    }
+
+    impl From<InsertionError> for Error {
+        fn from(e: InsertionError) -> Error {
+            Self::InsertionError(e)
         }
     }
 
@@ -77,9 +84,16 @@ pub mod error {
         CDRSError(CDRSError),
     }
 
+    /// InsertionError represents any error that may be encountered whilst inserting a value into a
+    /// database.
+    pub enum InsertionError {
+        CDRSError(CDRSError),
+        RegexError(RegexError),
+    }
+
     impl From<CDRSError> for QueryError {
         fn from(e: CDRSError) -> Self {
-            Self::CDRSError(e) 
+            Self::CDRSError(e)
         }
     }
 }

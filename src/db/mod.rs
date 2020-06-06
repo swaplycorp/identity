@@ -4,7 +4,7 @@ pub mod scylla;
 
 /// Provider represents any provider of long-term user information (e.g., redis, scylla).
 #[async_trait]
-pub trait Provider<T> {
+pub trait Provider {
     /// QueryType represents the only accepted query type for queries done on this provider.
     type QueryType;
 
@@ -13,14 +13,14 @@ pub trait Provider<T> {
     /// # Arguments
     ///
     /// * `q` - The value that should be queried for in the database
-    async fn load_record(&self, q: Self::QueryType) -> IdentityResult<T>;
+    async fn load_record<T>(&self, q: Self::QueryType) -> IdentityResult<T>;
 
     /// Inserts a new record into the database.
     ///
     /// # Arguments
     ///
     /// * `r` - The record that should be inserted into the database
-    async fn insert_record(&self, r: T) -> IdentityResult<()>;
+    async fn insert_record<T>(&self, r: T) -> IdentityResult<()>;
 }
 
 /// Queryable represents a type that implements conversion to a query for the respective provider.
