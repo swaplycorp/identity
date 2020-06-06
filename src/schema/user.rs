@@ -1,7 +1,7 @@
 use bincode::Error as BincodeError;
 use bs58::encode::Error as Bs58EncodingError;
 use cdrs::{
-    error,
+    error::{self, Error as CDRSError},
     frame::traits::TryFromRow,
     query::{QueryExecutor, QueryValues},
     query_values,
@@ -9,13 +9,11 @@ use cdrs::{
     Result as CDRSResult,
 };
 use chrono::{naive::NaiveDateTime, DateTime, Utc};
-use serde::{
-    Deserialize, Serialize,
-};
+use serde::{Deserialize, Serialize};
 use time::Timespec;
 use uuid::Uuid;
 
-use super::super::DbSession;
+use super::super::{error::QueryError, result::Result as IdentityResult, DbSession};
 
 use std::{
     collections::HashMap,
@@ -160,7 +158,7 @@ impl RegistrationTimestamp {
 // Conversion from a Timespec to a RegistrationTimestamp
 impl From<Timespec> for RegistrationTimestamp {
     fn from(timestamp: Timespec) -> Self {
-        Self{
+        Self {
             sec: timestamp.sec,
             nsec: timestamp.nsec,
         }
@@ -469,11 +467,11 @@ impl<'a> User<'a> {
     /// Ok(())
     /// # }
     /// ```
-    pub async fn insert_into_table(self, session: &mut DbSession) -> CDRSResult<()> {
+    pub async fn insert_into_table(self, session: &mut DbSession) -> IdentityResult<()> {
         session.query_with_values(r#"
             INSERT INTO identity.users (id, username, email, identities, password_hash, registered_at)
                 VALUES (?, ?, ?, ?, ?, ?);
-        "#, <Self as TryInto<QueryValues>>::try_into(self).map_err(|e| e.to_string())?).await.map(|_| ())
+        "#, <Self as TryInto<QueryValues>>::try_into(self).map_err(|e| e.to_string())?).await.map(|_| ()).into()
     }
 }
 
@@ -594,6 +592,13 @@ impl AsRustType<IdentityMap> for Map {
     }
 }
 
+/// UserQuery represents all non-filter queries for users.
+#[derive(Debug)]
+pub enum UserQuery<'a> {
+    Id(Uuid),
+    Nickname(&'a str),
+}
+
 /// OwnedUser represents an allocated user.
 #[derive(Debug)]
 pub struct OwnedUser {
@@ -638,10 +643,26 @@ impl OwnedUser {
     ///
     /// Ok(())
     /// # }
-
     /// ```
-    pub async fn read_from_table(session: &mut DbSession, ) -> CDRSResult<Self> {
-        Self::try_from_row(session.query("SELECT * FROM identity.users WHERE id = ")) 
+    pub async fn read_from_table(
+        session: &mut DbSession,
+        query: &UserQuery<'_>,
+    ) -> IdentityResult<Self> {
+        let mut id = 
+        <CDRSResult<Self> as Into<IdentityResult<Self>>::into(match query {
+            UserQuery::Id(id) => Self::try_from_row(
+                *session
+                    .query(format!("SELECT * FROM identity.users WHERE id = {}", id))
+                    .await
+                    .map_err(|e| <CDRSError as Into<QueryError>>::into(e))?
+                    .get_body()
+                    .map_err(|e| e.into())?
+                    .into_rows()
+                    .ok_or(QueryError::NoResults)?
+                    .get(0)
+                    .ok_or(QueryError::NoResults)?,
+            ),
+        })
     }
 }
 
@@ -692,12 +713,12 @@ impl TryFromRow for OwnedUser {
 pub async fn create_tables(session: &mut DbSession) -> CDRSResult<()> {
     futures_util::try_join!(
         session.query(
+            // A table storing all users
             r#"
             CREATE TABLE IF NOT EXISTS identity.users (
                 id UUID,
                 username TEXT,
                 email TEXT,
-                identities MAP<TEXT, TEXT>,
                 password_hash TEXT,
                 registered_at TIMESTAMP,
                 PRIMARY KEY (id, username, email)
@@ -705,14 +726,25 @@ pub async fn create_tables(session: &mut DbSession) -> CDRSResult<()> {
         "#,
         ),
         session.query(
+            // A table storing UUIDs for each registered nickname
             r#"
-                CREATE TABLE IF NOT EXISTS identity.user_connections (
-                    user_id UUID,
-                    connection_provider TEXT,
-                    id_for_provider TEXT,
-                    PRIMARY KEY ((user_id, connection_provider))
-                );
-            "#,
+            CREATE TABLE IF NOT EXISTS identity.nicknames (
+                user_id UUID,
+                nickname TEXT,
+                PRIMARY KEY nickname
+            );
+        "#,
+        ),
+        session.query(
+            // A table storing UUIDs for each registered 3rd party identity
+            r#"
+            CREATE TABLE IF NOT EXISTS identity.user_connections (
+                user_id UUID,
+                connection_provider TEXT,
+                id_for_provider TEXT,
+                PRIMARY KEY ((id_for_provider, connection_provider))
+            );
+        "#,
         )
     )
     .map(|_| ())

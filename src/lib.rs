@@ -3,13 +3,16 @@
 #[macro_use]
 extern crate arrayref;
 
+#[macro_use]
+extern crate async_trait;
+
 use cdrs::{
     authenticators::StaticPasswordAuthenticator,
     cluster::{session::Session, TcpConnectionPool},
     load_balancing::RoundRobin,
-    Result as CDRSResult,
-    query::QueryExecutor
+    query::QueryExecutor,
 };
+use result::IdentityResult;
 
 /// Schema describes the swaply identity service database schema.
 pub mod schema;
@@ -17,8 +20,69 @@ pub mod schema;
 /// Server implements a capnproto RPC and REST/JSON-HTTP identity service server.
 pub mod server;
 
+/// Db defines various database helper methods and types.
+pub mod db;
+
 /// DbSession represents a Scylla database session.
 pub type DbSession = Session<RoundRobin<TcpConnectionPool<StaticPasswordAuthenticator>>>;
+
+/// Result implements helpful error types.
+pub mod result {
+    use cdrs::Result as CDRSResult;
+    use std::result::{Result as StdResult};
+    use super::error::Error;
+
+    /// IdentityResult represents the result of a computation that may or may not fail.
+    pub type IdentityResult<T> = StdResult<T, Error>;
+
+    /// Result represents the result of a computation that may or may not fail.
+    pub type Result<T> = IdentityResult<T>;
+
+    impl<T> From<CDRSResult<T>> for IdentityResult<T> {
+        fn from(r: CDRSResult<T>) -> Self {
+            Self(r)
+        }
+    }
+
+    impl<T> From<StdResult<T, Error>> for IdentityResult<T> {
+        fn from(r: StdResult<T, Error>) -> Self {
+            Self(r)
+        }
+    }
+
+    impl<T> From<IdentityResult<T>> for StdResult<T, Error> {
+        fn from(r: IdentityResult<T>) -> Self {
+            r.0
+        }
+    }
+}
+
+pub mod error {
+    use cdrs::error::Error as CDRSError;
+
+    /// Error represents any error emitted by the swaply identity service.
+    pub enum Error {
+        QueryError(QueryError), 
+    }
+
+    impl From<QueryError> for Error {
+        fn from(e: QueryError) -> Error {
+            Self::QueryError(e)
+        }
+    }
+
+    /// QueryError represents any error that may be encountered while querying the database.
+    pub enum QueryError {
+        NoResults,
+        CDRSError(CDRSError),
+    }
+
+    impl From<CDRSError> for QueryError {
+        fn from(e: CDRSError) -> Self {
+            Self::CDRSError(e) 
+        }
+    }
+}
 
 /// Creates the identity keyspace in the scylla instance.
 ///
@@ -49,7 +113,7 @@ pub type DbSession = Session<RoundRobin<TcpConnectionPool<StaticPasswordAuthenti
 /// Ok(())
 /// # }
 /// ```
-pub async fn create_keyspace(session: &mut DbSession) -> CDRSResult<()> {
+pub async fn create_keyspace(session: &mut DbSession) -> IdentityResult<()> {
     session
         .query(
             r#"
@@ -62,4 +126,5 @@ pub async fn create_keyspace(session: &mut DbSession) -> CDRSResult<()> {
         )
         .await
         .map(|_| ())
+        .into()
 }
