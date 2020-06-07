@@ -21,8 +21,8 @@ use super::super::{
         scylla::{InTable, Scylla},
         Provider, Queryable,
     },
-    error::{QueryError, TableError},
-    result::Result as IdentityResult,
+    error::{QueryError, TableError, IdentityError},
+    result::IdentityResult,
     DbSession,
 };
 
@@ -469,7 +469,7 @@ impl<'a> InTable for User<'a> {
             ),
         )
         .await
-        .map_err(|e| TableError::CDRSError(e).into())
+        .map_err(|e| <TableError as Into<IdentityError>>::into(TableError::CDRSError(e)))
         .map(|_| ())
     }
 }
@@ -564,7 +564,10 @@ impl Queryable<Scylla> for UserQuery<'_> {
                 .map_err(|e| QueryError::CDRSError(e))
                 .and_then(|body| body.into_rows().ok_or(QueryError::NoResults))
                 .and_then(|rows| rows.get(0).ok_or(QueryError::NoResults))
-                .and_then(|row| row.get_r_by_name("nicknames").map_err(|e| e.into()))?,
+                .and_then(|row| {
+                    <Row as IntoRustByName<Uuid>>::get_r_by_name(&row, "user_id")
+                        .map_err(|e| <CDRSError as Into<QueryError>>::into(e))
+                })?,
         };
 
         Ok(format!(
@@ -598,33 +601,41 @@ impl TryFromRow for OwnedUser {
 
 #[cfg(test)]
 mod test {
+    use super::{super::super::error::IdentityError, *};
+    use cdrs::{
+        authenticators::StaticPasswordAuthenticator,
+        cluster::{ClusterTcpConfig, NodeTcpConfigBuilder},
+        load_balancing::RoundRobin,
+    };
     use chrono::{DateTime, Utc};
-    use std::collections::HashMap;
-    use swaply_identity::schema::user::{IdentityProvider, User};
+    use std::{collections::HashMap, env, error::Error};
 
     #[tokio::test]
-    async fn test_load_user() {
+    async fn test_load_user() -> Result<(), Box<dyn IdentityError>> {
         let password_hash = blake3::hash(b"123456");
-
-        let registered_at = Utc::now();
-        let mut u = User::new(
+        let u = User::new(
             None,
             "test",
             "test@test.com",
-            HashMap::new(),
             password_hash.as_bytes(),
-            Some(registered_at),
+            None,
         );
-        assert_eq!(u.registered_at(), registered_at);
 
-        u = User::new(
-            None,
-            "test",
-            "test@test.com",
-            HashMap::new(),
-            password_hash.as_bytes(),
-            None,
+        let db_node = env::var("SCYLLA_NODE_URL")?;
+
+        let auth = StaticPasswordAuthenticator::new(
+            env::var("SCYLLA_USERNAME")?,
+            env::var("SCYLLA_PASSWORD")?,
         );
-        u.registered_at(); // An ISO 8601 timestamp representing the time at which u was created
+        let node = NodeTcpConfigBuilder::new(&db_node, auth).build();
+        let cluster_config = ClusterTcpConfig(vec![node]);
+        let mut session = cdrs::cluster::session::new(&cluster_config, RoundRobin::new()).await?;
+
+        super::super::super::create_keyspace(&mut session).await?;
+
+        let db = Scylla::new(session);
+        db.insert_record(u).await?;
+
+        Ok(())
     }
 }

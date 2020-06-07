@@ -7,7 +7,7 @@ use regex::Regex;
 
 use super::{
     super::{
-        error::{Error as IdentityError, InsertionError, QueryError},
+        error::{IdentityError, InsertionError, QueryError},
         result::IdentityResult,
         DbSession,
     },
@@ -30,6 +30,10 @@ pub trait InTable {
     const COLUMNS: &'static str;
 
     /// Creates any associated tables necessary for operation.
+    ///
+    /// # Arguments
+    ///
+    /// * `session` - The database connector that should be used to create the table
     async fn create_tables(session: &mut DbSession) -> IdentityResult<()>;
 }
 
@@ -61,10 +65,10 @@ impl Scylla {
 // NOTE: Two types may be used for storage and for insertion. As such, load_record and
 // insert_record refer to different kinds of values, with lesser and greater constraints.
 #[async_trait]
-impl<K: Queryable<Self>> Provider for Scylla {
-    type QueryType = K;
+impl<Q: Queryable<Scylla>> Provider<Scylla> for Scylla {
+    type QueryType = Q;
 
-    async fn load_record<V: TryFromRow>(&self, q: K) -> IdentityResult<V> {
+    async fn load_record<T>(&self, q: Q) -> IdentityResult<T> {
         self.session
             // Allow the struct impelemting conversion to construct a query
             .query(q.to_query(&self.session).await?)

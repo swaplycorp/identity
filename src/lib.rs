@@ -28,33 +28,11 @@ pub type DbSession = Session<RoundRobin<TcpConnectionPool<StaticPasswordAuthenti
 
 /// Result implements helpful error types.
 pub mod result {
-    use super::error::Error;
-    use cdrs::Result as CDRSResult;
+    use super::error::IdentityError;
     use std::result::Result as StdResult;
 
     /// IdentityResult represents the result of a computation that may or may not fail.
-    pub type IdentityResult<T> = StdResult<T, Error>;
-
-    /// Result represents the result of a computation that may or may not fail.
-    pub type Result<T> = IdentityResult<T>;
-
-    impl<T> From<CDRSResult<T>> for IdentityResult<T> {
-        fn from(r: CDRSResult<T>) -> Self {
-            Self(r)
-        }
-    }
-
-    impl<T> From<StdResult<T, Error>> for IdentityResult<T> {
-        fn from(r: StdResult<T, Error>) -> Self {
-            Self(r)
-        }
-    }
-
-    impl<T> From<IdentityResult<T>> for StdResult<T, Error> {
-        fn from(r: IdentityResult<T>) -> Self {
-            r.0
-        }
-    }
+    pub type IdentityResult<T> = StdResult<T, IdentityError>;
 }
 
 pub mod error {
@@ -62,25 +40,25 @@ pub mod error {
     use regex::Error as RegexError;
 
     /// Error represents any error emitted by the swaply identity service.
-    pub enum Error {
+    pub enum IdentityError {
         QueryError(QueryError),
         InsertionError(InsertionError),
         TableError(TableError),
     }
 
-    impl From<QueryError> for Error {
+    impl From<QueryError> for IdentityError {
         fn from(e: QueryError) -> Self {
             Self::QueryError(e)
         }
     }
 
-    impl From<InsertionError> for Error {
+    impl From<InsertionError> for IdentityError {
         fn from(e: InsertionError) -> Self {
             Self::InsertionError(e)
         }
     }
 
-    impl From<TableError> for Error {
+    impl From<TableError> for IdentityError {
         fn from(e: TableError) -> Self {
             Self::TableError(e)
         }
@@ -164,6 +142,6 @@ pub async fn create_keyspace(session: &mut DbSession) -> IdentityResult<()> {
             "#,
         )
         .await
+        .map_err(|e| error::TableError::CDRSError(e).into())
         .map(|_| ())
-        .into()
 }

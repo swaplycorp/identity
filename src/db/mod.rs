@@ -4,9 +4,9 @@ pub mod scylla;
 
 /// Provider represents any provider of long-term user information (e.g., redis, scylla).
 #[async_trait]
-pub trait Provider {
+pub trait Provider<DB> {
     /// QueryType represents the only accepted query type for queries done on this provider.
-    type QueryType;
+    type QueryType: Queryable<DB>;
 
     /// Loads a database record into a struct instance.
     ///
