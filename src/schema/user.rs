@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use time::Timespec;
 use uuid::Uuid;
 
-use super::super::{error::QueryError, result::Result as IdentityResult, DbSession, db::{Provider, scylla::{Scylla, InTable}}};
+use super::super::{error::{QueryError, TableError}, result::Result as IdentityResult, DbSession, db::{Provider, Queryable, scylla::{Scylla, InTable}}};
 
 use std::{
     collections::HashMap,
@@ -431,56 +431,55 @@ impl<'a> User<'a> {
             Utc,
         )
     }
-
-    /// Inserts the user into the database indicated by the given session.
-    ///
-    /// # Arguments
-    ///
-    /// * `session` - The syclla db connector that should be used
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use cdrs::{authenticators::StaticPasswordAuthenticator, cluster::{NodeTcpConfigBuilder, ClusterTcpConfig}, load_balancing::RoundRobin};
-    /// use std::{env, error::Error, collections::HashMap};
-    /// use swaply_identity::schema::user::User;
-    ///
-    /// # #[tokio::main]
-    /// # async fn main() -> Result<(), Box<dyn Error>> {
-    /// # dotenv::dotenv()?;
-    ///
-    /// let db_node = env::var("SCYLLA_NODE_URL")?;
-    ///
-    /// let auth = StaticPasswordAuthenticator::new(env::var("SCYLLA_USERNAME")?, env::var("SCYLLA_PASSWORD")?);
-    /// let node = NodeTcpConfigBuilder::new(&db_node, auth).build();
-    /// let cluster_config = ClusterTcpConfig(vec![node]);
-    /// let mut session = cdrs::cluster::session::new(&cluster_config, RoundRobin::new()).await?;
-    ///
-    /// swaply_identity::create_keyspace(&mut session).await?;
-    /// swaply_identity::schema::user::create_tables(&mut session).await?;
-    ///
-    /// let password_hash = blake3::hash(b"123456");
-    ///
-    /// let u = User::new(None, "test", "test@test.com", HashMap::new(), password_hash.as_bytes(), None);
-    /// u.insert_into_table(&mut session).await?;
-    ///
-    /// Ok(())
-    /// # }
-    /// ```
-    pub async fn insert_into_table(self, session: &mut DbSession) -> IdentityResult<()> {
-        session.query_with_values(r#"
-            INSERT INTO identity.users (id, username, email, identities, password_hash, registered_at)
-                VALUES (?, ?, ?, ?, ?, ?);
-        "#, <Self as TryInto<QueryValues>>::try_into(self).map_err(|e| e.to_string())?).await.map(|_| ()).into()
-    }
 }
 
+#[async_trait]
 impl<'a> InTable for User<'a> {
    const KEYSPACE: &'static str = "identity";
-
    const TABLE: &'static str = "users";
-
    const COLUMNS: &'static str = "(id, username, email, identities, password_hash, registered_at)";
+
+   async fn create_tables(session: &mut DbSession) -> IdentityResult<()> {
+    futures_util::future::try_join3(
+        session.query(
+            // A table storing all users
+            r#"
+            CREATE TABLE IF NOT EXISTS identity.users (
+                id UUID,
+                username TEXT,
+                email TEXT,
+                password_hash TEXT,
+                registered_at TIMESTAMP,
+                PRIMARY KEY id
+            );
+        "#,
+        ),
+        session.query(
+            // A table storing UUIDs for each registered nickname
+            r#"
+            CREATE TABLE IF NOT EXISTS identity.nicknames (
+                user_id UUID,
+                nickname TEXT,
+                PRIMARY KEY nickname
+            );
+        "#,
+        ),
+        session.query(
+            // A table storing UUIDs for each registered 3rd party identity
+            r#"
+            CREATE TABLE IF NOT EXISTS identity.user_connections (
+                user_id UUID,
+                connection_provider TEXT,
+                id_for_provider TEXT,
+                PRIMARY KEY (connection_provider, id_for_provider)
+            );
+        "#,
+        )
+    )
+    .await
+    .map_err(|e| TableError::CDRSError(e).into())
+    .map(|_| ())
+   }
 }
 
 #[derive(Debug)]
@@ -607,6 +606,15 @@ pub enum UserQuery<'a> {
     Nickname(&'a str),
 }
 
+impl Queryable<Scylla> for UserQuery<'_> {
+    fn to_query(&self, session: &DbSession) -> String {
+        let query_id = match self {
+            Self::Id(id) => id,
+            Self::Nickname(nick) => session.query("SELECT user_id FROM identity.nicknames WHERE nickname = '{}';", nick).await
+        };
+    }
+}
+
 /// OwnedUser represents an allocated user.
 #[derive(Debug)]
 pub struct OwnedUser {
@@ -616,62 +624,6 @@ pub struct OwnedUser {
     identities: IdentityMap,
     password_hash: Vec<u8>,
     registered_at: RegistrationTimestamp,
-}
-
-impl OwnedUser {
-    /// Converts a database row into an allocated User.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use swaply_identity::schema::user::{OwnedUser, User};
-    /// use cdrs::{authenticators::StaticPasswordAuthenticator, cluster::{NodeTcpConfigBuilder, ClusterTcpConfig}, load_balancing::RoundRobin, frame::traits::TryFromRow};
-    /// use std::{env, error::Error, collections::HashMap};
-    ///
-    /// # #[tokio::main]
-    /// # async fn main() -> Result<(), Box<dyn Error>> {
-    /// # dotenv::dotenv()?;
-    ///
-    /// let db_node = env::var("SCYLLA_NODE_URL")?;
-    ///
-    /// let auth = StaticPasswordAuthenticator::new(env::var("SCYLLA_USERNAME")?, env::var("SCYLLA_PASSWORD")?);
-    /// let node = NodeTcpConfigBuilder::new(&db_node, auth).build();
-    /// let cluster_config = ClusterTcpConfig(vec![node]);
-    /// let mut session = cdrs::cluster::session::new(&cluster_config, RoundRobin::new()).await?;
-    ///
-    /// swaply_identity::create_keyspace(&mut session).await?;
-    /// swaply_identity::schema::user::create_tables(&mut session).await?;
-    ///
-    /// let password_hash = blake3::hash(b"123456");
-    ///
-    /// let u = User::new(None, "test", "test@test.com", HashMap::new(), password_hash.as_bytes(), None);
-    /// u.insert_into_table(&mut session).await?;
-    ///
-    /// let user_from_db = OwnedUser::try_from_row(session.query("SELECT * FROM "))
-    ///
-    /// Ok(())
-    /// # }
-    /// ```
-    pub async fn read_from_table(
-        session: &mut DbSession,
-        query: &UserQuery<'_>,
-    ) -> IdentityResult<Self> {
-        let mut id = 
-        <CDRSResult<Self> as Into<IdentityResult<Self>>::into(match query {
-            UserQuery::Id(id) => Self::try_from_row(
-                *session
-                    .query(format!("SELECT * FROM identity.users WHERE id = {}", id))
-                    .await
-                    .map_err(|e| <CDRSError as Into<QueryError>>::into(e))?
-                    .get_body()
-                    .map_err(|e| e.into())?
-                    .into_rows()
-                    .ok_or(QueryError::NoResults)?
-                    .get(0)
-                    .ok_or(QueryError::NoResults)?,
-            ),
-        })
-    }
 }
 
 impl TryFromRow for OwnedUser {
@@ -687,73 +639,4 @@ impl TryFromRow for OwnedUser {
             registered_at: <Timespec as Into<RegistrationTimestamp>>::into(row.get_r_by_index(5)?),
         })
     }
-}
-
-/// Creates the necessary keyspace to store users.
-///
-/// # Arguments
-///
-/// * `session` - The syclla db connector that should be used
-///
-/// # Examples
-///
-/// ```
-/// use cdrs::{authenticators::StaticPasswordAuthenticator, cluster::{NodeTcpConfigBuilder, ClusterTcpConfig}, load_balancing::RoundRobin};
-/// use std::{env, error::Error};
-///
-/// # #[tokio::main]
-/// # async fn main() -> Result<(), Box<dyn Error>> {
-/// # dotenv::dotenv()?;
-///
-/// let db_node = env::var("SCYLLA_NODE_URL")?;
-///
-/// let auth = StaticPasswordAuthenticator::new(env::var("SCYLLA_USERNAME")?, env::var("SCYLLA_PASSWORD")?);
-/// let node = NodeTcpConfigBuilder::new(&db_node, auth).build();
-/// let cluster_config = ClusterTcpConfig(vec![node]);
-/// let mut session = cdrs::cluster::session::new(&cluster_config, RoundRobin::new()).await?;
-///
-/// swaply_identity::create_keyspace(&mut session).await?;
-/// swaply_identity::schema::user::create_tables(&mut session).await?;
-///
-/// Ok(())
-/// # }
-/// ```
-pub async fn create_tables(session: &mut DbSession) -> CDRSResult<()> {
-    futures_util::try_join!(
-        session.query(
-            // A table storing all users
-            r#"
-            CREATE TABLE IF NOT EXISTS identity.users (
-                id UUID,
-                username TEXT,
-                email TEXT,
-                password_hash TEXT,
-                registered_at TIMESTAMP,
-                PRIMARY KEY (id, username, email)
-            );
-        "#,
-        ),
-        session.query(
-            // A table storing UUIDs for each registered nickname
-            r#"
-            CREATE TABLE IF NOT EXISTS identity.nicknames (
-                user_id UUID,
-                nickname TEXT,
-                PRIMARY KEY nickname
-            );
-        "#,
-        ),
-        session.query(
-            // A table storing UUIDs for each registered 3rd party identity
-            r#"
-            CREATE TABLE IF NOT EXISTS identity.user_connections (
-                user_id UUID,
-                connection_provider TEXT,
-                id_for_provider TEXT,
-                PRIMARY KEY ((id_for_provider, connection_provider))
-            );
-        "#,
-        )
-    )
-    .map(|_| ())
 }

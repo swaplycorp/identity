@@ -64,17 +64,25 @@ pub mod error {
     /// Error represents any error emitted by the swaply identity service.
     pub enum Error {
         QueryError(QueryError),
+        InsertionError(InsertionError),
+        TableError(TableError),
     }
 
     impl From<QueryError> for Error {
-        fn from(e: QueryError) -> Error {
+        fn from(e: QueryError) -> Self {
             Self::QueryError(e)
         }
     }
 
     impl From<InsertionError> for Error {
-        fn from(e: InsertionError) -> Error {
+        fn from(e: InsertionError) -> Self {
             Self::InsertionError(e)
+        }
+    }
+
+    impl From<TableError> for Error {
+        fn from(e: TableError) -> Self {
+            Self::TableError(e)
         }
     }
 
@@ -84,6 +92,12 @@ pub mod error {
         CDRSError(CDRSError),
     }
 
+    impl From<CDRSError> for QueryError {
+        fn from(e: CDRSError) -> Self {
+            Self::CDRSError(e)
+        }
+    }
+
     /// InsertionError represents any error that may be encountered whilst inserting a value into a
     /// database.
     pub enum InsertionError {
@@ -91,7 +105,18 @@ pub mod error {
         RegexError(RegexError),
     }
 
-    impl From<CDRSError> for QueryError {
+    impl From<CDRSError> for InsertionError {
+        fn from(e: CDRSError) -> Self {
+            Self::CDRSError(e)
+        }
+    }
+
+    /// TableError represents any error that may be encountered whilst creating or modifying a table.
+    pub enum TableError {
+        CDRSError(CDRSError),
+    }
+
+    impl From<CDRSError> for TableError {
         fn from(e: CDRSError) -> Self {
             Self::CDRSError(e)
         }
