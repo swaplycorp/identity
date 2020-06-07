@@ -1,4 +1,4 @@
-use super::result::IdentityResult;
+use super::{result::IdentityResult, DbSession};
 
 pub mod scylla;
 
@@ -23,8 +23,10 @@ pub trait Provider {
     async fn insert_record<T>(&self, r: T) -> IdentityResult<()>;
 }
 
-/// Queryable represents a type that implements conversion to a query for the respective provider.
+/// Queryable represents a type that implements a query generator for the respective database
+/// provider.
+#[async_trait]
 pub trait Queryable<DB> {
     /// Constructs a query from the query type.
-    fn to_query(&self) -> String;
+    async fn to_query(&self, session: &DbSession) -> IdentityResult<String>;
 }

@@ -67,7 +67,7 @@ impl<K: Queryable<Self>> Provider for Scylla {
     async fn load_record<V: TryFromRow>(&self, q: K) -> IdentityResult<V> {
         self.session
             // Allow the struct impelemting conversion to construct a query
-            .query(q.to_query())
+            .query(q.to_query(&self.session).await?)
             .await
             // Convert generalized results into a set of rows
             .and_then(|frame| frame.get_body())
