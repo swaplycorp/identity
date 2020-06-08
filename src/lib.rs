@@ -38,8 +38,9 @@ pub mod result {
 pub mod error {
     use cdrs::error::Error as CDRSError;
     use regex::Error as RegexError;
-
     use std::{error::Error, fmt};
+
+    use super::schema::user::ConvertUserToQueryValuesError;
 
     /// Error represents any error emitted by the swaply identity service.
     #[derive(Debug)]
@@ -88,6 +89,7 @@ pub mod error {
     pub enum QueryError {
         NoResults,
         CDRSError(CDRSError),
+        ParameterizationError(ConvertUserToQueryValuesError),
     }
 
     impl From<CDRSError> for QueryError {
@@ -114,6 +116,7 @@ pub mod error {
             match self {
                 Self::NoResults => None,
                 Self::CDRSError(e) => Some(e),
+                Self::ParameterizationError(e) => Some(e)
             }
         }
     }

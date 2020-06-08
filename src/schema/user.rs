@@ -17,6 +17,7 @@ use super::super::{
     db::{
         scylla::{InTable, Scylla},
         Queryable,
+        Serializable
     },
     error::{IdentityError, QueryError, TableError},
     result::IdentityResult,
@@ -426,6 +427,20 @@ impl<'a> InTable for User<'a> {
     }
 }
 
+impl Serializable<QueryValues> for User<'_> {
+    type Error =  ConvertUserToQueryValuesError;
+
+    fn try_into(&self) -> Result<QueryValues, Self::Error> {
+        Ok(query_values!(
+            "id" => u.id,
+            "username" => u.username,
+            "email" => u.email,
+            "password_hash" => bs58::encode(u.password_hash.to_vec()).into_string(),
+            "registered_at" => <&RegistrationTimestamp as Into<Timespec>>::into(&u.registered_at)
+        ))
+    }
+}
+
 #[derive(Debug)]
 pub enum ConvertUserToQueryValuesError {
     SerializationError(BincodeError),
@@ -441,6 +456,12 @@ impl From<BincodeError> for ConvertUserToQueryValuesError {
 impl From<Bs58EncodingError> for ConvertUserToQueryValuesError {
     fn from(e: Bs58EncodingError) -> Self {
         Self::EncodingError(e)
+    }
+}
+
+impl From<ConvertUserToQueryValuesError> for QueryError {
+    fn from(e: ConvertUserToQueryValuesError) -> Self {
+        QueryError::ParameterizationError(e)
     }
 }
 
@@ -566,7 +587,10 @@ mod test {
     use chrono::{DateTime, Utc};
     use std::{collections::HashMap, env, error::Error};
 
-    use super::{super::super::error::IdentityError, *};
+    use super::{
+        super::super::{db::Provider, error::IdentityError},
+        *,
+    };
 
     #[tokio::test]
     async fn test_load_user() -> Result<(), Box<dyn Error>> {
