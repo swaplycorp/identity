@@ -1,14 +1,11 @@
 use bincode::Error as BincodeError;
 use bs58::encode::Error as Bs58EncodingError;
 use cdrs::{
-    error::{self, Error as CDRSError},
+    error::Error as CDRSError,
     frame::traits::TryFromRow,
     query::{QueryExecutor, QueryValues},
     query_values,
-    types::{
-        blob::Blob, map::Map, prelude::Row, value::Bytes, AsRustType, IntoRustByIndex,
-        IntoRustByName,
-    },
+    types::{blob::Blob, prelude::Row, value::Bytes, IntoRustByIndex, IntoRustByName},
     Result as CDRSResult,
 };
 use chrono::{naive::NaiveDateTime, DateTime, Utc};
@@ -19,15 +16,14 @@ use uuid::Uuid;
 use super::super::{
     db::{
         scylla::{InTable, Scylla},
-        Provider, Queryable,
+        Queryable,
     },
-    error::{QueryError, TableError, IdentityError},
+    error::{IdentityError, QueryError, TableError},
     result::IdentityResult,
     DbSession,
 };
 
 use std::{
-    collections::HashMap,
     convert::{TryFrom, TryInto},
     error::Error,
     fmt,
@@ -348,50 +344,6 @@ impl<'a> User<'a> {
         self.email
     }
 
-    /// Obtains a reference to the set of third party identity integrations associated with this
-    /// user.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use swaply_identity::schema::user::User;
-    /// use std::collections::HashMap;
-    ///
-    /// let password_hash = blake3::hash(b"123456");
-    ///
-    /// let u = User::new(None, "test", "test@test.com", HashMap::new(), password_hash.as_bytes(), None);
-    /// assert_eq!(*u.identities(), HashMap::new());
-    /// ```
-    pub fn identities(&self) -> &HashMap<IdentityProvider, &str> {
-        &self.identities
-    }
-
-    /// Obtains the user ID associated with one of a user's connections.
-    ///
-    /// # Arguments
-    ///
-    /// * `provider` - The identity provider for which a user ID should be obtained
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use swaply_identity::schema::user::{User, IdentityProvider};
-    /// use uuid::Uuid;
-    /// use std::collections::HashMap;
-    ///
-    /// let password_hash = blake3::hash(b"123456");
-    ///
-    /// let mut identities = HashMap::new();
-    /// identities.insert(IdentityProvider::GitHub, "dowlandaiello");
-    ///
-    /// let u = User::new(None, "test", "test@test.com", identities, password_hash.as_bytes(), None);
-    ///
-    /// assert_eq!(u.user_id_for(IdentityProvider::GitHub), Some("dowlandaiello"));
-    /// ```
-    pub fn user_id_for(&self, provider: IdentityProvider) -> Option<&str> {
-        self.identities.get(&provider).map(|s| *s)
-    }
-
     /// Obtains a hash of the user's password, if they have registered via the traditional password
     /// authentication system.
     ///
@@ -523,7 +475,6 @@ impl TryFrom<User<'_>> for QueryValues {
             "id" => u.id,
             "username" => u.username,
             "email" => u.email,
-            "identities" => u.identities,
             "password_hash" => bs58::encode(u.password_hash.to_vec()).into_string(),
             "registered_at" => <&RegistrationTimestamp as Into<Timespec>>::into(&u.registered_at)
         ))
@@ -550,7 +501,7 @@ pub enum UserQuery<'a> {
 }
 
 #[async_trait]
-impl Queryable<Scylla> for UserQuery<'_> {
+impl Queryable<Scylla, DbSession> for UserQuery<'_> {
     async fn to_query(&self, session: &DbSession) -> IdentityResult<String> {
         let query_id = match self {
             Self::Id(id) => *id,
@@ -563,7 +514,13 @@ impl Queryable<Scylla> for UserQuery<'_> {
                 .and_then(|frame| frame.get_body())
                 .map_err(|e| QueryError::CDRSError(e))
                 .and_then(|body| body.into_rows().ok_or(QueryError::NoResults))
-                .and_then(|rows| rows.get(0).ok_or(QueryError::NoResults))
+                .and_then(|mut rows| {
+                    if rows.len() == 0 {
+                        Err(QueryError::NoResults)
+                    } else {
+                        Ok(rows.remove(0))
+                    }
+                })
                 .and_then(|row| {
                     <Row as IntoRustByName<Uuid>>::get_r_by_name(&row, "user_id")
                         .map_err(|e| <CDRSError as Into<QueryError>>::into(e))
@@ -611,7 +568,7 @@ mod test {
     use std::{collections::HashMap, env, error::Error};
 
     #[tokio::test]
-    async fn test_load_user() -> Result<(), Box<dyn IdentityError>> {
+    async fn test_load_user() -> Result<(), IdentityError> {
         let password_hash = blake3::hash(b"123456");
         let u = User::new(
             None,

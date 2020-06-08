@@ -1,6 +1,5 @@
 use super::{
     super::{db::scylla::InTable, error::TableError, IdentityResult, DbSession},
-    user::OwnedUser,
 };
 
 use cdrs::query::QueryExecutor;
@@ -8,6 +7,7 @@ use cdrs::query::QueryExecutor;
 use uuid::Uuid;
 
 /// NicknameRecord represents an owned copy of a mapping between a nickname and a UUID.
+#[derive(Debug)]
 pub struct NicknameRecord {
     id: Uuid,
 
@@ -22,7 +22,7 @@ impl NicknameRecord {
 
     /// Obtains the username of the user in question.
     pub fn nickname(&self) -> &str {
-        self.nickname
+        self.nickname.as_ref()
     }
 }
 

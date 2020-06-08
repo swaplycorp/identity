@@ -40,6 +40,7 @@ pub mod error {
     use regex::Error as RegexError;
 
     /// Error represents any error emitted by the swaply identity service.
+    #[derive(Debug)]
     pub enum IdentityError {
         QueryError(QueryError),
         InsertionError(InsertionError),
@@ -65,6 +66,7 @@ pub mod error {
     }
 
     /// QueryError represents any error that may be encountered while querying the database.
+    #[derive(Debug)]
     pub enum QueryError {
         NoResults,
         CDRSError(CDRSError),
@@ -78,6 +80,7 @@ pub mod error {
 
     /// InsertionError represents any error that may be encountered whilst inserting a value into a
     /// database.
+    #[derive(Debug)]
     pub enum InsertionError {
         CDRSError(CDRSError),
         RegexError(RegexError),
@@ -90,6 +93,7 @@ pub mod error {
     }
 
     /// TableError represents any error that may be encountered whilst creating or modifying a table.
+    #[derive(Debug)]
     pub enum TableError {
         CDRSError(CDRSError),
     }
