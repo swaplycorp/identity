@@ -558,7 +558,6 @@ impl TryFromRow for OwnedUser {
 
 #[cfg(test)]
 mod test {
-    use super::{super::super::error::IdentityError, *};
     use cdrs::{
         authenticators::StaticPasswordAuthenticator,
         cluster::{ClusterTcpConfig, NodeTcpConfigBuilder},
@@ -567,8 +566,10 @@ mod test {
     use chrono::{DateTime, Utc};
     use std::{collections::HashMap, env, error::Error};
 
+    use super::{super::super::error::IdentityError, *};
+
     #[tokio::test]
-    async fn test_load_user() -> Result<(), IdentityError> {
+    async fn test_load_user() -> Result<(), Box<dyn Error>> {
         let password_hash = blake3::hash(b"123456");
         let u = User::new(
             None,

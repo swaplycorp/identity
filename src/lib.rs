@@ -39,6 +39,8 @@ pub mod error {
     use cdrs::error::Error as CDRSError;
     use regex::Error as RegexError;
 
+    use std::{error::Error, fmt};
+
     /// Error represents any error emitted by the swaply identity service.
     #[derive(Debug)]
     pub enum IdentityError {
@@ -65,6 +67,22 @@ pub mod error {
         }
     }
 
+    impl fmt::Display for IdentityError {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(f, "encountered an error: {:?}", self.source())
+        }
+    }
+
+    impl Error for IdentityError {
+        fn source(&self) -> Option<&(dyn Error + 'static)> {
+            match self {
+                Self::QueryError(e) => Some(e),
+                Self::InsertionError(e) => Some(e),
+                Self::TableError(e) => Some(e),
+            }
+        }
+    }
+
     /// QueryError represents any error that may be encountered while querying the database.
     #[derive(Debug)]
     pub enum QueryError {
@@ -75,6 +93,28 @@ pub mod error {
     impl From<CDRSError> for QueryError {
         fn from(e: CDRSError) -> Self {
             Self::CDRSError(e)
+        }
+    }
+
+    impl fmt::Display for QueryError {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(
+                f,
+                "encountered an error while querying the database: {}",
+                match self {
+                    Self::NoResults => "no results found".to_owned(),
+                    _ => format!("{:?}", self.source()),
+                }
+            )
+        }
+    }
+
+    impl Error for QueryError {
+        fn source(&self) -> Option<&(dyn Error + 'static)> {
+            match self {
+                Self::NoResults => None,
+                Self::CDRSError(e) => Some(e),
+            }
         }
     }
 
@@ -92,6 +132,25 @@ pub mod error {
         }
     }
 
+    impl fmt::Display for InsertionError {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(
+                f,
+                "encountered an error while inserting a record into a table: {:?}",
+                self.source()
+            )
+        }
+    }
+
+    impl Error for InsertionError {
+        fn source(&self) -> Option<&(dyn Error + 'static)> {
+            match self {
+                Self::CDRSError(e) => Some(e),
+                Self::RegexError(e) => Some(e),
+            }
+        }
+    }
+
     /// TableError represents any error that may be encountered whilst creating or modifying a table.
     #[derive(Debug)]
     pub enum TableError {
@@ -101,6 +160,24 @@ pub mod error {
     impl From<CDRSError> for TableError {
         fn from(e: CDRSError) -> Self {
             Self::CDRSError(e)
+        }
+    }
+
+    impl fmt::Display for TableError {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(
+                f,
+                "encountered an error while managing a table: {:?}",
+                self.source()
+            )
+        }
+    }
+
+    impl Error for TableError {
+        fn source(&self) -> Option<&(dyn Error + 'static)> {
+            match self {
+                Self::CDRSError(e) => Some(e),
+            }
         }
     }
 }
