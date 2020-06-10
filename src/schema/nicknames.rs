@@ -1,7 +1,6 @@
-use super::super::{db::{InTable, scylla::Scylla}, error::TableError, DbSession, IdentityResult};
+use super::super::{db::{InTable, scylla::Scylla}, DbSession, result::IdentityResult, error::IdentityError};
 
-use cdrs::query::QueryExecutor;
-
+use cdrs::{query::QueryExecutor, error::Error as CDRSError};
 use uuid::Uuid;
 
 /// NicknameRecord represents an owned copy of a mapping between a nickname and a UUID.
@@ -38,7 +37,7 @@ impl InTable<Scylla, DbSession> for NicknameRecord {
                 "#,
             )
             .await
-            .map_err(|e| TableError::CDRSError(e).into())
+            .map_err(|e| <CDRSError as Into<IdentityError>>::into(e))
             .map(|_| ())
     }
 }

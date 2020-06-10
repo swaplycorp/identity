@@ -13,7 +13,7 @@ use uuid::Uuid;
 
 use super::super::{
     db::{scylla::Scylla, Deserializable, InTable, Insertable, Queryable, Serializable},
-    error::{IdentityError, QueryError, TableError},
+    error::{IdentityError, QueryError},
     result::IdentityResult,
     DbSession,
 };
@@ -418,7 +418,7 @@ impl<'a> InTable<Scylla, DbSession> for User<'a> {
                 "#,
             )
             .await
-            .map_err(|e| <TableError as Into<IdentityError>>::into(TableError::CDRSError(e)))
+            .map_err(|e| <CDRSError as Into<IdentityError>>::into(e))
             .map(|_| ())
     }
 }
@@ -465,9 +465,9 @@ impl From<Bs58EncodingError> for ConvertUserToQueryValuesError {
     }
 }
 
-impl From<ConvertUserToQueryValuesError> for QueryError {
+impl From<ConvertUserToQueryValuesError> for IdentityError {
     fn from(e: ConvertUserToQueryValuesError) -> Self {
-        QueryError::SerializationError(e)
+        IdentityError::QueryError(QueryError::SerializationError(e))
     }
 }
 
@@ -539,11 +539,11 @@ impl Queryable<Scylla, DbSession> for UserQuery<'_> {
                 ))
                 .await
                 .and_then(|frame| frame.get_body())
-                .map_err(|e| QueryError::CDRSError(e))
-                .and_then(|body| body.into_rows().ok_or(QueryError::NoResults))
+                .map_err(|e| <CDRSError as Into<IdentityError>>::into(e))
+                .and_then(|body| body.into_rows().ok_or(QueryError::NoResults.into()))
                 .and_then(|mut rows| {
                     if rows.len() == 0 {
-                        Err(QueryError::NoResults)
+                        Err(QueryError::NoResults.into())
                     } else {
                         Ok(rows.remove(0))
                     }
@@ -551,7 +551,7 @@ impl Queryable<Scylla, DbSession> for UserQuery<'_> {
                 .and_then(|row| {
                     <Row as IntoRustByName<Uuid>>::get_r_by_name(&row, "user_id")
                         .map(|id| format!("{}", id))
-                        .map_err(|e| <CDRSError as Into<QueryError>>::into(e))
+                        .map_err(|e| <CDRSError as Into<IdentityError>>::into(e))
                 })?,
         };
 
@@ -621,9 +621,9 @@ impl Error for ConvertRowToUserError {
     }
 }
 
-impl From<ConvertRowToUserError> for QueryError {
+impl From<ConvertRowToUserError> for IdentityError {
     fn from(e: ConvertRowToUserError) -> Self {
-        Self::DeserializationError(e)
+        IdentityError::QueryError(QueryError::DeserializationError(e))
     }
 }
 

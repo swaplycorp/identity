@@ -5,7 +5,7 @@ use cdrs::{
 };
 
 use super::{
-    super::{error::QueryError, result::IdentityResult, DbSession},
+    super::{error::{QueryError, IdentityError}, result::IdentityResult, DbSession},
     Deserializable, Insertable, Provider, Queryable, Serializable,
 };
 
@@ -57,10 +57,10 @@ impl Provider<Self, DbSession> for Scylla {
             .and_then(|frame| frame.get_body())
             .map_err(|e| e.into())
             // Ensure that some rows have been returned
-            .and_then(|resp| resp.into_rows().ok_or(QueryError::NoResults))
+            .and_then(|resp| resp.into_rows().ok_or(QueryError::NoResults.into()))
             .and_then(|mut rows| {
                 if rows.len() == 0 {
-                    Err(QueryError::NoResults)
+                    Err(IdentityError::QueryError(QueryError::NoResults))
                 } else {
                     Ok(rows.remove(0))
                 }
@@ -94,6 +94,6 @@ impl Provider<Self, DbSession> for Scylla {
             )
             .await
             .map(|_| ())
-            .map_err(|e| <CDRSError as Into<QueryError>>::into(e).into())
+            .map_err(|e| <CDRSError as Into<IdentityError>>::into(e).into())
     }
 }

@@ -9,10 +9,10 @@ extern crate async_trait;
 use cdrs::{
     authenticators::StaticPasswordAuthenticator,
     cluster::{session::Session, TcpConnectionPool},
+    error::Error as CDRSError,
     load_balancing::RoundRobin,
     query::QueryExecutor,
 };
-use result::IdentityResult;
 
 /// Schema describes the swaply identity service database schema.
 pub mod schema;
@@ -30,11 +30,11 @@ mod testing {
     // If a .env file doesn't exist, fallback to env variables
     #[macro_export]
     macro_rules! load_env {
-        () => ({
+        () => {{
             if std::path::Path::new(".env").exists() {
                 dotenv::dotenv().ok();
             }
-        });
+        }};
     }
 }
 
@@ -60,7 +60,7 @@ pub mod error {
     pub enum IdentityError {
         QueryError(QueryError),
         InsertionError(InsertionError),
-        TableError(TableError),
+        CDRSError(CDRSError),
     }
 
     impl From<QueryError> for IdentityError {
@@ -75,9 +75,9 @@ pub mod error {
         }
     }
 
-    impl From<TableError> for IdentityError {
-        fn from(e: TableError) -> Self {
-            Self::TableError(e)
+    impl From<CDRSError> for IdentityError {
+        fn from(e: CDRSError) -> Self {
+            Self::CDRSError(e)
         }
     }
 
@@ -92,7 +92,7 @@ pub mod error {
             match self {
                 Self::QueryError(e) => Some(e),
                 Self::InsertionError(e) => Some(e),
-                Self::TableError(e) => Some(e),
+                Self::CDRSError(e) => Some(e)
             }
         }
     }
@@ -101,15 +101,8 @@ pub mod error {
     #[derive(Debug)]
     pub enum QueryError {
         NoResults,
-        CDRSError(CDRSError),
         SerializationError(ConvertUserToQueryValuesError),
         DeserializationError(ConvertRowToUserError),
-    }
-
-    impl From<CDRSError> for QueryError {
-        fn from(e: CDRSError) -> Self {
-            Self::CDRSError(e)
-        }
     }
 
     impl fmt::Display for QueryError {
@@ -129,7 +122,6 @@ pub mod error {
         fn source(&self) -> Option<&(dyn Error + 'static)> {
             match self {
                 Self::NoResults => None,
-                Self::CDRSError(e) => Some(e),
                 Self::SerializationError(e) => Some(e),
                 Self::DeserializationError(e) => Some(e),
             }
@@ -140,14 +132,7 @@ pub mod error {
     /// database.
     #[derive(Debug)]
     pub enum InsertionError {
-        CDRSError(CDRSError),
         RegexError(RegexError),
-    }
-
-    impl From<CDRSError> for InsertionError {
-        fn from(e: CDRSError) -> Self {
-            Self::CDRSError(e)
-        }
     }
 
     impl fmt::Display for InsertionError {
@@ -163,38 +148,7 @@ pub mod error {
     impl Error for InsertionError {
         fn source(&self) -> Option<&(dyn Error + 'static)> {
             match self {
-                Self::CDRSError(e) => Some(e),
                 Self::RegexError(e) => Some(e),
-            }
-        }
-    }
-
-    /// TableError represents any error that may be encountered whilst creating or modifying a table.
-    #[derive(Debug)]
-    pub enum TableError {
-        CDRSError(CDRSError),
-    }
-
-    impl From<CDRSError> for TableError {
-        fn from(e: CDRSError) -> Self {
-            Self::CDRSError(e)
-        }
-    }
-
-    impl fmt::Display for TableError {
-        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            write!(
-                f,
-                "encountered an error while managing a table: {:?}",
-                self.source()
-            )
-        }
-    }
-
-    impl Error for TableError {
-        fn source(&self) -> Option<&(dyn Error + 'static)> {
-            match self {
-                Self::CDRSError(e) => Some(e),
             }
         }
     }
@@ -228,7 +182,7 @@ pub mod error {
 /// Ok(())
 /// # }
 /// ```
-pub async fn create_keyspace(session: &DbSession) -> IdentityResult<()> {
+pub async fn create_keyspace(session: &DbSession) -> result::IdentityResult<()> {
     session
         .query(
             r#"
@@ -240,7 +194,6 @@ pub async fn create_keyspace(session: &DbSession) -> IdentityResult<()> {
             "#,
         )
         .await
-        .map_err(|e| error::TableError::CDRSError(e).into())
+        .map_err(|e| <CDRSError as Into<error::IdentityError>>::into(e))
         .map(|_| ())
 }
-

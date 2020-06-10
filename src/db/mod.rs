@@ -1,4 +1,4 @@
-use super::{error::QueryError, result::IdentityResult};
+use super::{error::IdentityError, result::IdentityResult};
 
 pub mod scylla;
 
@@ -55,7 +55,7 @@ pub trait Insertable<Db, Session> {
 /// Deserializable represents a type that may be converted to from a NativeType defined by a
 /// Provider.
 pub trait Deserializable<ComplexType, DbType> {
-    type Error: Into<QueryError>;
+    type Error: Into<IdentityError>;
 
     /// Converts the NativeType to the desired type.
     ///
@@ -67,7 +67,7 @@ pub trait Deserializable<ComplexType, DbType> {
 
 //// Serializable represents a type that may be converted to a NativeType defined by a Provider.
 pub trait Serializable<DbType> {
-    type Error: Into<QueryError> + Send;
+    type Error: Into<IdentityError> + Send;
 
     /// Converts the Rust type to a native type.
     fn try_into(&self) -> Result<DbType, Self::Error>;
