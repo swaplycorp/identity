@@ -4,7 +4,7 @@ pub mod scylla;
 
 /// Provider represents any provider of long-term user information (e.g., redis, scylla).
 #[async_trait]
-pub trait Provider<DB, Session> {
+pub trait Provider<Db, Session> {
     /// NativeType is any struct that serves as a medium between the initial record type and the
     /// raw, native database type (e.g., Scylla rows).
     type ResponseIntermediary;
@@ -17,10 +17,10 @@ pub trait Provider<DB, Session> {
     ///
     /// # Arguments
     ///
-    /// * `q` - The query that shoul be executed on the provider.
+    /// * `q` - The query that should be executed on the provider.
     async fn load_record<
-        K: Queryable<DB, Session> + Send + Sync,
-        V: Deserializable<Self::ResponseIntermediary> + Send,
+        K: Queryable<Db, Session> + Send + Sync,
+        V: Deserializable<V, Self::ResponseIntermediary> + Send,
     >(
         &self,
         q: K,
@@ -31,7 +31,7 @@ pub trait Provider<DB, Session> {
     /// # Arguments
     ///
     /// * `r` - The record that should be inserted into the database
-    async fn insert_record<V: Serializable<Self::RequestIntermediary> + Insertable<DB> + Send + Sync>(
+    async fn insert_record<V: Serializable<Self::RequestIntermediary> + Insertable<Db, Session> + Send + Sync>(
         &self,
         r: V,
     ) -> IdentityResult<()>;
@@ -40,21 +40,21 @@ pub trait Provider<DB, Session> {
 /// Queryable represents a type that implements a query generator for the respective database
 /// provider.
 #[async_trait]
-pub trait Queryable<DB, Session> {
+pub trait Queryable<Db, Session> {
     /// Constructs a query from the query type.
     async fn to_query(&self, session: &Session) -> IdentityResult<String>;
 }
 
 /// Insertable represents a type that implements an insertion query generator for the respective
 /// database provider.
-pub trait Insertable<DB> {
+pub trait Insertable<Db, Session> {
     /// Constructs a query from the query type.
-    fn to_insertion_query(&self) -> IdentityResult<String>;
+    fn to_insertion_query(&self) -> IdentityResult<&str>;
 }
 
 /// Deserializable represents a type that may be converted to from a NativeType defined by a
 /// Provider.
-pub trait Deserializable<T>: Sized {
+pub trait Deserializable<ComplexType, DbType> {
     type Error: Into<QueryError>;
 
     /// Converts the NativeType to the desired type.
@@ -62,13 +62,22 @@ pub trait Deserializable<T>: Sized {
     /// # Arguments
     ///
     /// * `value` - The native type instance
-    fn try_from(value: T) -> Result<Self, Self::Error>;
+    fn try_from(value: DbType) -> Result<ComplexType, Self::Error>;
 }
 
 //// Serializable represents a type that may be converted to a NativeType defined by a Provider.
-pub trait Serializable<T> {
+pub trait Serializable<DbType> {
     type Error: Into<QueryError> + Send;
 
     /// Converts the Rust type to a native type.
-    fn try_into(&self) -> Result<T, Self::Error>;
+    fn try_into(&self) -> Result<DbType, Self::Error>;
+}
+
+/// InTable represents a struct that can be represented as a record in a relational or SQL-like
+/// table.
+#[async_trait]
+pub trait InTable<Db, Session> {
+    /// Creates any keyspaces or tables necessary for the proper usage of the struct that may be
+    /// rperesented in a database.
+    async fn create_prerequisite_objects(session: &Session) -> IdentityResult<()>;
 }

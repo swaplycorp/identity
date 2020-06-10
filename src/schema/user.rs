@@ -14,11 +14,7 @@ use time::Timespec;
 use uuid::Uuid;
 
 use super::super::{
-    db::{
-        scylla::{InTable, Scylla},
-        Queryable,
-        Serializable
-    },
+    db::{scylla::Scylla, InTable, Insertable, Queryable, Serializable},
     error::{IdentityError, QueryError, TableError},
     result::IdentityResult,
     DbSession,
@@ -369,6 +365,17 @@ impl<'a> User<'a> {
     /// # Examples
     ///
     /// ```
+    /// use swaply_identity::schema::user::{User, IdentityProvider};
+    /// use chrono::{DateTime, Utc};
+    /// use std::collections::HashMap;
+    ///
+    /// let password_hash = blake3::hash(b"123456");
+    ///
+    /// let now = Utc::now();
+    ///
+    /// let u = User::new(None, "test", "test@test.com", HashMap::new(), password_hash.as_bytes(), Some(now));
+    /// assert_eq!(u.registered_at(), Some(now))
+
     /// ```
     pub fn registered_at(&self) -> DateTime<Utc> {
         DateTime::<Utc>::from_utc(
@@ -379,65 +386,47 @@ impl<'a> User<'a> {
 }
 
 #[async_trait]
-impl<'a> InTable for User<'a> {
-    const KEYSPACE: &'static str = "identity";
-    const TABLE: &'static str = "users";
-    const COLUMNS: &'static str = "(id, username, email, identities, password_hash, registered_at)";
-
-    async fn create_tables(session: &mut DbSession) -> IdentityResult<()> {
-        futures_util::future::try_join3(
-            session.query(
+impl<'a> InTable<Scylla, DbSession> for User<'a> {
+    async fn create_prerequisite_objects(session: &DbSession) -> IdentityResult<()> {
+        session
+            .query(
                 // A table storing all users
                 r#"
-            CREATE TABLE IF NOT EXISTS identity.users (
-                id UUID,
-                username TEXT,
-                email TEXT,
-                password_hash TEXT,
-                registered_at TIMESTAMP,
-                PRIMARY KEY id
-            );
-        "#,
-            ),
-            session.query(
-                // A table storing UUIDs for each registered nickname
-                r#"
-            CREATE TABLE IF NOT EXISTS identity.nicknames (
-                user_id UUID,
-                nickname TEXT,
-                PRIMARY KEY nickname
-            );
-        "#,
-            ),
-            session.query(
-                // A table storing UUIDs for each registered 3rd party identity
-                r#"
-            CREATE TABLE IF NOT EXISTS identity.user_connections (
-                user_id UUID,
-                connection_provider TEXT,
-                id_for_provider TEXT,
-                PRIMARY KEY (connection_provider, id_for_provider)
-            );
-        "#,
-            ),
-        )
-        .await
-        .map_err(|e| <TableError as Into<IdentityError>>::into(TableError::CDRSError(e)))
-        .map(|_| ())
+                    CREATE TABLE IF NOT EXISTS identity.users (
+                        id UUID,
+                        username TEXT,
+                        email TEXT,
+                        password_hash TEXT,
+                        registered_at TIMESTAMP,
+                        PRIMARY KEY id
+                    );
+                "#,
+            )
+            .await
+            .map_err(|e| <TableError as Into<IdentityError>>::into(TableError::CDRSError(e)))
+            .map(|_| ())
     }
 }
 
 impl Serializable<QueryValues> for User<'_> {
-    type Error =  ConvertUserToQueryValuesError;
+    type Error = ConvertUserToQueryValuesError;
 
     fn try_into(&self) -> Result<QueryValues, Self::Error> {
         Ok(query_values!(
-            "id" => u.id,
-            "username" => u.username,
-            "email" => u.email,
-            "password_hash" => bs58::encode(u.password_hash.to_vec()).into_string(),
-            "registered_at" => <&RegistrationTimestamp as Into<Timespec>>::into(&u.registered_at)
+            "id" => self.id,
+            "username" => self.username,
+            "email" => self.email,
+            "password_hash" => bs58::encode(self.password_hash.to_vec()).into_string(),
+            "registered_at" => <&RegistrationTimestamp as Into<Timespec>>::into(&self.registered_at)
         ))
+    }
+}
+
+impl<'a> Insertable<Scylla, DbSession> for User<'a> {
+    fn to_insertion_query(&self) -> IdentityResult<&str> {
+        Ok(
+            r#"INSERT INTO identity.users (id, username, email, password_hash, registered_at) VALUES (?, ?, ?, ?, ?);"#,
+        )
     }
 }
 
@@ -584,16 +573,26 @@ mod test {
         cluster::{ClusterTcpConfig, NodeTcpConfigBuilder},
         load_balancing::RoundRobin,
     };
-    use chrono::{DateTime, Utc};
-    use std::{collections::HashMap, env, error::Error};
+    use dotenv::dotenv;
+    use std::{env, error::Error};
 
-    use super::{
-        super::super::{db::Provider, error::IdentityError},
-        *,
-    };
+    use super::{super::super::db::Provider, *};
 
     #[tokio::test]
     async fn test_load_user() -> Result<(), Box<dyn Error>> {
+        dotenv().ok();
+
+        let db_node = env::var("SCYLLA_NODE_URL")?;
+
+        let auth = StaticPasswordAuthenticator::new(
+            env::var("SCYLLA_USERNAME")?,
+            env::var("SCYLLA_PASSWORD")?,
+        );
+
+        let node = NodeTcpConfigBuilder::new(&db_node, auth).build();
+        let cluster_config = ClusterTcpConfig(vec![node]);
+        let session = cdrs::cluster::session::new(&cluster_config, RoundRobin::new()).await?;
+
         let password_hash = blake3::hash(b"123456");
         let u = User::new(
             None,
@@ -603,17 +602,8 @@ mod test {
             None,
         );
 
-        let db_node = env::var("SCYLLA_NODE_URL")?;
-
-        let auth = StaticPasswordAuthenticator::new(
-            env::var("SCYLLA_USERNAME")?,
-            env::var("SCYLLA_PASSWORD")?,
-        );
-        let node = NodeTcpConfigBuilder::new(&db_node, auth).build();
-        let cluster_config = ClusterTcpConfig(vec![node]);
-        let mut session = cdrs::cluster::session::new(&cluster_config, RoundRobin::new()).await?;
-
-        super::super::super::create_keyspace(&mut session).await?;
+        crate::create_keyspace(&session).await?;
+        User::create_prerequisite_objects(&session).await?;
 
         let db = Scylla::new(session);
         db.insert_record(u).await?;

@@ -207,14 +207,14 @@ pub mod error {
 /// let auth = StaticPasswordAuthenticator::new(env::var("SCYLLA_USERNAME")?, env::var("SCYLLA_PASSWORD")?);
 /// let node = NodeTcpConfigBuilder::new(&db_node, auth).build();
 /// let cluster_config = ClusterTcpConfig(vec![node]);
-/// let mut session = cdrs::cluster::session::new(&cluster_config, RoundRobin::new()).await?;
+/// let session = cdrs::cluster::session::new(&cluster_config, RoundRobin::new()).await?;
 ///
-/// swaply_identity::create_keyspace(&mut session).await?;
+/// swaply_identity::create_keyspace(&session).await?;
 ///
 /// Ok(())
 /// # }
 /// ```
-pub async fn create_keyspace(session: &mut DbSession) -> IdentityResult<()> {
+pub async fn create_keyspace(session: &DbSession) -> IdentityResult<()> {
     session
         .query(
             r#"

@@ -9,27 +9,6 @@ use super::{
     Deserializable, Insertable, Provider, Queryable, Serializable,
 };
 
-/// InTable represents any type that may be stored in a keyspace and table.
-#[async_trait]
-pub trait InTable {
-    /// The keyspace that the struct should be stored in.
-    const KEYSPACE: &'static str;
-
-    /// The table that the struct should be stored in.
-    const TABLE: &'static str;
-
-    /// The columns contained in the struct represented in the following form: "(column1, colum2,
-    /// etc...)"
-    const COLUMNS: &'static str;
-
-    /// Creates any associated tables necessary for operation.
-    ///
-    /// # Arguments
-    ///
-    /// * `session` - The database connector that should be used to create the table
-    async fn create_tables(session: &mut DbSession) -> IdentityResult<()>;
-}
-
 /// Scylla represents a connector capable of loading and inserting struct data via scylladb.
 #[derive(Debug)]
 pub struct Scylla {
@@ -65,7 +44,7 @@ impl Provider<Self, DbSession> for Scylla {
 
     async fn load_record<
         K: Queryable<Self, DbSession> + Send + Sync,
-        V: Deserializable<Self::ResponseIntermediary> + Send,
+        V: Deserializable<V, Self::ResponseIntermediary> + Send,
     >(
         &self,
         q: K,
@@ -98,7 +77,7 @@ impl Provider<Self, DbSession> for Scylla {
     /// - Return an Error type that may be converted into an IdentityError upon such conversion
     /// - Specify an insertion query template via an implementation of Insertable<DB>
     async fn insert_record<
-        V: Serializable<Self::RequestIntermediary> + Insertable<Scylla> + Send + Sync,
+        V: Serializable<Self::RequestIntermediary> + Insertable<Self, DbSession> + Send + Sync,
     >(
         &self,
         r: V,

@@ -1,6 +1,4 @@
-use super::{
-    super::{db::scylla::InTable, error::TableError, IdentityResult, DbSession},
-};
+use super::super::{db::{InTable, scylla::Scylla}, error::TableError, DbSession, IdentityResult};
 
 use cdrs::query::QueryExecutor;
 
@@ -27,12 +25,8 @@ impl NicknameRecord {
 }
 
 #[async_trait]
-impl InTable for NicknameRecord {
-    const KEYSPACE: &'static str = "identity";
-    const TABLE: &'static str = "nicknames";
-    const COLUMNS: &'static str = "(user_id, nickname)";
-
-    async fn create_tables(session: &mut DbSession) -> IdentityResult<()> {
+impl InTable<Scylla, DbSession> for NicknameRecord {
+    async fn create_prerequisite_objects(session: &DbSession) -> IdentityResult<()> {
         session
             .query(
                 r#"
