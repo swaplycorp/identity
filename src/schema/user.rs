@@ -4,10 +4,7 @@ use cdrs::{
     error::Error as CDRSError,
     query::{QueryExecutor, QueryValues},
     query_values,
-    types::{
-        blob::Blob, data_serialization_types, list::List, prelude::Row, value::Bytes, CBytes,
-        IntoRustByIndex, IntoRustByName,
-    },
+    types::{prelude::Row, value::Bytes, IntoRustByName},
 };
 use chrono::{naive::NaiveDateTime, DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -160,6 +157,12 @@ impl RegistrationTimestamp {
     }
 }
 
+impl PartialEq for RegistrationTimestamp {
+    fn eq(&self, other: &Self) -> bool {
+        self.sec == other.sec && self.nsec / 1_000_000 == other.nsec / 1_000_000
+    }
+}
+
 // Conversion from a Timespec to a RegistrationTimestamp
 impl From<Timespec> for RegistrationTimestamp {
     fn from(timestamp: Timespec) -> Self {
@@ -210,6 +213,7 @@ impl TryFrom<DateTime<Utc>> for RegistrationTimestamp {
     type Error = TryFromIntError;
 
     fn try_from(timestamp: DateTime<Utc>) -> Result<Self, Self::Error> {
+        println!("{}", timestamp.timestamp_millis());
         Ok(Self {
             sec: timestamp.timestamp(),
             nsec: timestamp.timestamp_subsec_nanos().try_into()?,
@@ -243,6 +247,16 @@ pub struct User<'a> {
 
     /// The time at which this user was registered.
     registered_at: RegistrationTimestamp,
+}
+
+impl PartialEq<OwnedUser> for User<'_> {
+    fn eq(&self, other: &OwnedUser) -> bool {
+        self.id == other.id
+            && self.username == other.username
+            && self.email == other.email
+            && self.password_hash == other.password_hash.as_slice()
+            && self.registered_at == other.registered_at
+    }
 }
 
 impl<'a> User<'a> {
@@ -558,6 +572,16 @@ pub struct OwnedUser {
     registered_at: RegistrationTimestamp,
 }
 
+impl PartialEq<User<'_>> for OwnedUser {
+    fn eq(&self, other: &User) -> bool {
+        self.id == other.id
+            && self.username == other.username
+            && self.email == other.email
+            && self.password_hash == other.password_hash
+            && self.registered_at == other.registered_at
+    }
+}
+
 /// ConvertRowToUserError represents an error that may be encountered whilst converting a row to
 /// an owned user instance.
 #[derive(Debug)]
@@ -632,14 +656,14 @@ mod test {
         cluster::{ClusterTcpConfig, NodeTcpConfigBuilder},
         load_balancing::RoundRobin,
     };
-    use dotenv::dotenv;
     use std::{env, error::Error};
 
     use super::{super::super::db::Provider, *};
+    use crate::load_env;
 
     #[tokio::test]
     async fn test_insert_user() -> Result<(), Box<dyn Error>> {
-        dotenv().ok();
+        load_env!();
 
         let db_node = env::var("SCYLLA_NODE_URL")?;
 
@@ -672,7 +696,7 @@ mod test {
 
     #[tokio::test]
     async fn test_load_user() -> Result<(), Box<dyn Error>> {
-        dotenv().ok();
+        load_env!();
 
         let db_node = env::var("SCYLLA_NODE_URL")?;
 
@@ -702,6 +726,8 @@ mod test {
 
         let user_id = *u.id();
         let loaded_u: OwnedUser = db.load_record(&UserQuery::Id(&user_id)).await?;
+
+        assert_eq!(loaded_u, u);
 
         Ok(())
     }

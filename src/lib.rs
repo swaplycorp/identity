@@ -26,7 +26,19 @@ pub mod db;
 /// DbSession represents a Scylla database session.
 pub type DbSession = Session<RoundRobin<TcpConnectionPool<StaticPasswordAuthenticator>>>;
 
-/// Result implements helpful error types.
+mod testing {
+    // If a .env file doesn't exist, fallback to env variables
+    #[macro_export]
+    macro_rules! load_env {
+        () => ({
+            if std::path::Path::new(".env").exists() {
+                dotenv::dotenv().ok();
+            }
+        });
+    }
+}
+
+/// Result implements helpful Ok/Err types.
 pub mod result {
     use super::error::IdentityError;
     use std::result::Result as StdResult;
@@ -35,6 +47,7 @@ pub mod result {
     pub type IdentityResult<T> = StdResult<T, IdentityError>;
 }
 
+/// Error implements helpful error types.
 pub mod error {
     use cdrs::error::Error as CDRSError;
     use regex::Error as RegexError;
@@ -231,3 +244,4 @@ pub async fn create_keyspace(session: &DbSession) -> IdentityResult<()> {
         .map_err(|e| error::TableError::CDRSError(e).into())
         .map(|_| ())
 }
+
