@@ -1,9 +1,13 @@
 language: rust
 rust:
-  - stable
-  - nightly
+- stable
+- nightly
 jobs:
   allow_failures:
-    - rust: nightly
+  - rust: nightly
   fast_finish: true
 cache: cargo
+env:
+  global:
+    # ScyllaDB username, password, and URL
+    secure: p16V2mw74oBNujiS2qhQC7eZoH3mznZkLbYMRrY6G2o0bn8ZnL/1RMR5qXicwfp2M9nnJHJLtiM+MMEi1BybiKIbTYsuYUWY2lGXzDKc3814Zo/ZJnGIooqKoDRXMvju0bLOWmNRPxAZ+6cLo0DRxTp0yy1d7MuyeQl5V0bIiRUBhYwBPYlWgNoijsQb6QLAFUUEM0eq6HZPwVIspjA2S+ZcBVk7eyuTYKW1NxXzmsc95sG3C/X7BFeshR4j8CcrBUsk+VYs4f8DJkvrttU9p+7Igq6sVnHLYYG+ao5/IHc78KgdNTsfT191W3ZIBbXraC2tnSLkdLlp/U/MqsUhdqlPM/oMEWfFNKEiCrQ35KBDa8AoId/efTcGdcnfphwuDgM50OySHvASNuw52Rx6qqBAVQKYV9gMPUhf5F3Hk2phCX34EXD/12XC+KdrUldarOsTyYUYt2Ufm0dCgAkS0aw+9JqIJGKTb+cuQOtSRamsMEPprHfrG4VPKLuI+X5A8BkU6Y0mQ8iJYG9t3X1JUNh6VSylqQwk1Ue8DSbCHHacFBAPuC9L+UDAUMWGA8yPMDoT0oPrUEKAHlGtwZazAXY6QP7yQovDspxZEGHpWwJRc3is0A99/d9pCVd5bOyXdN5ZNBpvY/nr0Ixy9bzd67wnjr4VH3N0LpMmUS1uJ6M=
