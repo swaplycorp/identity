@@ -1,12 +1,13 @@
 use bincode::Error as BincodeError;
-use bs58::encode::Error as Bs58EncodingError;
+use bs58::{decode::Error as Bs58DecodingError, encode::Error as Bs58EncodingError};
 use cdrs::{
     error::Error as CDRSError,
-    frame::traits::TryFromRow,
     query::{QueryExecutor, QueryValues},
     query_values,
-    types::{blob::Blob, prelude::Row, value::Bytes, IntoRustByIndex, IntoRustByName},
-    Result as CDRSResult,
+    types::{
+        blob::Blob, data_serialization_types, list::List, prelude::Row, value::Bytes, CBytes,
+        IntoRustByIndex, IntoRustByName,
+    },
 };
 use chrono::{naive::NaiveDateTime, DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -14,7 +15,7 @@ use time::Timespec;
 use uuid::Uuid;
 
 use super::super::{
-    db::{scylla::Scylla, InTable, Insertable, Queryable, Serializable},
+    db::{scylla::Scylla, Deserializable, InTable, Insertable, Queryable, Serializable},
     error::{IdentityError, QueryError, TableError},
     result::IdentityResult,
     DbSession,
@@ -264,7 +265,7 @@ impl<'a> User<'a> {
     ///
     /// let password_hash = blake3::hash(b"123456");
     ///
-    /// let u = User::new(None, "test", "test@test.com", HashMap::new(), password_hash.as_bytes(), None);
+    /// let u = User::new(None, "test", "test@test.com", password_hash.as_bytes(), None);
     /// ```
     pub fn new(
         id: Option<Uuid>,
@@ -300,7 +301,7 @@ impl<'a> User<'a> {
     /// let password_hash = blake3::hash(b"123456");
     ///
     /// let id = Uuid::new_v4();
-    /// let u = User::new(Some(id), "test", "test@test.com", HashMap::new(), password_hash.as_bytes(), None);
+    /// let u = User::new(Some(id), "test", "test@test.com", password_hash.as_bytes(), None);
     /// assert_eq!(u.id(), &id);
     /// ```
     pub fn id(&self) -> &Uuid {
@@ -317,7 +318,7 @@ impl<'a> User<'a> {
     ///
     /// let password_hash = blake3::hash(b"123456");
     ///
-    /// let u = User::new(None, "test", "test@test.com", HashMap::new(), password_hash.as_bytes(), None);
+    /// let u = User::new(None, "test", "test@test.com", password_hash.as_bytes(), None);
     /// assert_eq!(u.username(), "test");
     /// ```
     pub fn username(&self) -> &str {
@@ -334,7 +335,7 @@ impl<'a> User<'a> {
     ///
     /// let password_hash = blake3::hash(b"123456");
     ///
-    /// let u = User::new(None, "test", "test@test.com", HashMap::new(), password_hash.as_bytes(), None);
+    /// let u = User::new(None, "test", "test@test.com", password_hash.as_bytes(), None);
     /// assert_eq!(u.email(), "test@test.com");
     /// ```
     pub fn email(&self) -> &str {
@@ -352,7 +353,7 @@ impl<'a> User<'a> {
     ///
     /// let password_hash = blake3::hash(b"123456");
     ///
-    /// let u = User::new(None, "test", "test@test.com", HashMap::new(), password_hash.as_bytes(), None);
+    /// let u = User::new(None, "test", "test@test.com", password_hash.as_bytes(), None);
     /// assert_eq!(u.password_hash(), password_hash.as_bytes());
     /// ```
     pub fn password_hash(&self) -> &[u8; 32] {
@@ -373,8 +374,8 @@ impl<'a> User<'a> {
     ///
     /// let now = Utc::now();
     ///
-    /// let u = User::new(None, "test", "test@test.com", HashMap::new(), password_hash.as_bytes(), Some(now));
-    /// assert_eq!(u.registered_at(), Some(now))
+    /// let u = User::new(None, "test", "test@test.com", password_hash.as_bytes(), Some(now));
+    /// assert_eq!(u.registered_at(), now);
 
     /// ```
     pub fn registered_at(&self) -> DateTime<Utc> {
@@ -398,7 +399,7 @@ impl<'a> InTable<Scylla, DbSession> for User<'a> {
                         email TEXT,
                         password_hash TEXT,
                         registered_at TIMESTAMP,
-                        PRIMARY KEY id
+                        PRIMARY KEY (id)
                     );
                 "#,
             )
@@ -411,6 +412,8 @@ impl<'a> InTable<Scylla, DbSession> for User<'a> {
 impl Serializable<QueryValues> for User<'_> {
     type Error = ConvertUserToQueryValuesError;
 
+    /// Note: This implementation of try_into requires an allocation to convert the password hash
+    /// into a base58 string.
     fn try_into(&self) -> Result<QueryValues, Self::Error> {
         Ok(query_values!(
             "id" => self.id,
@@ -433,7 +436,7 @@ impl<'a> Insertable<Scylla, DbSession> for User<'a> {
 #[derive(Debug)]
 pub enum ConvertUserToQueryValuesError {
     SerializationError(BincodeError),
-    EncodingError(bs58::encode::Error),
+    EncodingError(Bs58EncodingError),
 }
 
 impl From<BincodeError> for ConvertUserToQueryValuesError {
@@ -450,7 +453,7 @@ impl From<Bs58EncodingError> for ConvertUserToQueryValuesError {
 
 impl From<ConvertUserToQueryValuesError> for QueryError {
     fn from(e: ConvertUserToQueryValuesError) -> Self {
-        QueryError::ParameterizationError(e)
+        QueryError::SerializationError(e)
     }
 }
 
@@ -506,7 +509,7 @@ impl<'a> From<&'a OwnedUser> for User<'a> {
 /// UserQuery represents all non-filter queries for users.
 #[derive(Debug)]
 pub enum UserQuery<'a> {
-    Id(Uuid),
+    Id(&'a Uuid),
     Nickname(&'a str),
 }
 
@@ -514,7 +517,7 @@ pub enum UserQuery<'a> {
 impl Queryable<Scylla, DbSession> for UserQuery<'_> {
     async fn to_query(&self, session: &DbSession) -> IdentityResult<String> {
         let query_id = match self {
-            Self::Id(id) => *id,
+            Self::Id(id) => format!("{}", id),
             Self::Nickname(nick) => session
                 .query(format!(
                     "SELECT user_id FROM identity.nicknames WHERE nickname = '{}';",
@@ -533,6 +536,7 @@ impl Queryable<Scylla, DbSession> for UserQuery<'_> {
                 })
                 .and_then(|row| {
                     <Row as IntoRustByName<Uuid>>::get_r_by_name(&row, "user_id")
+                        .map(|id| format!("{}", id))
                         .map_err(|e| <CDRSError as Into<QueryError>>::into(e))
                 })?,
         };
@@ -554,14 +558,69 @@ pub struct OwnedUser {
     registered_at: RegistrationTimestamp,
 }
 
-impl TryFromRow for OwnedUser {
-    fn try_from_row(row: Row) -> CDRSResult<Self> {
+/// ConvertRowToUserError represents an error that may be encountered whilst converting a row to
+/// an owned user instance.
+#[derive(Debug)]
+pub enum ConvertRowToUserError {
+    CDRSError(CDRSError),
+    DecodingError(Bs58DecodingError),
+}
+
+impl fmt::Display for ConvertRowToUserError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "encountered an error whilst deserializing a row: {:?}",
+            self.source()
+        )
+    }
+}
+
+impl From<CDRSError> for ConvertRowToUserError {
+    fn from(e: CDRSError) -> Self {
+        Self::CDRSError(e)
+    }
+}
+
+impl From<Bs58DecodingError> for ConvertRowToUserError {
+    fn from(e: Bs58DecodingError) -> Self {
+        Self::DecodingError(e)
+    }
+}
+
+impl Error for ConvertRowToUserError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::CDRSError(ref e) => Some(e),
+            Self::DecodingError(ref e) => Some(e),
+        }
+    }
+}
+
+impl From<ConvertRowToUserError> for QueryError {
+    fn from(e: ConvertRowToUserError) -> Self {
+        Self::DeserializationError(e)
+    }
+}
+
+impl Deserializable<OwnedUser, Row> for OwnedUser {
+    type Error = ConvertRowToUserError;
+
+    fn try_from(value: Row) -> Result<OwnedUser, Self::Error> {
         Ok(OwnedUser {
-            id: row.get_r_by_index(0)?,
-            username: row.get_r_by_index(1)?,
-            email: row.get_r_by_index(2)?,
-            password_hash: <Row as IntoRustByIndex<Blob>>::get_r_by_index(&row, 3)?.into_vec(),
-            registered_at: <Timespec as Into<RegistrationTimestamp>>::into(row.get_r_by_index(4)?),
+            id: value.get_r_by_name("id")?,
+            username: value.get_r_by_name("username")?,
+            email: value.get_r_by_name("email")?,
+            password_hash: bs58::decode(<Row as IntoRustByName<String>>::get_r_by_name(
+                &value,
+                "password_hash",
+            )?)
+            .into_vec()?,
+            registered_at: <Row as IntoRustByName<Timespec>>::get_r_by_name(
+                &value,
+                "registered_at",
+            )
+            .map(|timespec| <Timespec as Into<RegistrationTimestamp>>::into(timespec))?,
         })
     }
 }
@@ -577,6 +636,39 @@ mod test {
     use std::{env, error::Error};
 
     use super::{super::super::db::Provider, *};
+
+    #[tokio::test]
+    async fn test_insert_user() -> Result<(), Box<dyn Error>> {
+        dotenv().ok();
+
+        let db_node = env::var("SCYLLA_NODE_URL")?;
+
+        let auth = StaticPasswordAuthenticator::new(
+            env::var("SCYLLA_USERNAME")?,
+            env::var("SCYLLA_PASSWORD")?,
+        );
+
+        let node = NodeTcpConfigBuilder::new(&db_node, auth).build();
+        let cluster_config = ClusterTcpConfig(vec![node]);
+        let session = cdrs::cluster::session::new(&cluster_config, RoundRobin::new()).await?;
+
+        let password_hash = blake3::hash(b"123456");
+        let u = User::new(
+            None,
+            "test",
+            "test@test.com",
+            password_hash.as_bytes(),
+            None,
+        );
+
+        crate::create_keyspace(&session).await?;
+        User::create_prerequisite_objects(&session).await?;
+
+        let db = Scylla::new(session);
+        db.insert_record(&u).await?;
+
+        Ok(())
+    }
 
     #[tokio::test]
     async fn test_load_user() -> Result<(), Box<dyn Error>> {
@@ -606,7 +698,10 @@ mod test {
         User::create_prerequisite_objects(&session).await?;
 
         let db = Scylla::new(session);
-        db.insert_record(u).await?;
+        db.insert_record(&u).await?;
+
+        let user_id = *u.id();
+        let loaded_u: OwnedUser = db.load_record(&UserQuery::Id(&user_id)).await?;
 
         Ok(())
     }

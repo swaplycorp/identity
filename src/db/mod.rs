@@ -23,7 +23,7 @@ pub trait Provider<Db, Session> {
         V: Deserializable<V, Self::ResponseIntermediary> + Send,
     >(
         &self,
-        q: K,
+        q: &K,
     ) -> IdentityResult<V>;
 
     /// Inserts a new record into the database.
@@ -33,7 +33,7 @@ pub trait Provider<Db, Session> {
     /// * `r` - The record that should be inserted into the database
     async fn insert_record<V: Serializable<Self::RequestIntermediary> + Insertable<Db, Session> + Send + Sync>(
         &self,
-        r: V,
+        r: &V,
     ) -> IdentityResult<()>;
 }
 

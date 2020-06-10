@@ -47,7 +47,7 @@ impl Provider<Self, DbSession> for Scylla {
         V: Deserializable<V, Self::ResponseIntermediary> + Send,
     >(
         &self,
-        q: K,
+        q: &K,
     ) -> IdentityResult<V> {
         self.session
             // Allow the struct impelemting conversion to construct a query
@@ -80,7 +80,7 @@ impl Provider<Self, DbSession> for Scylla {
         V: Serializable<Self::RequestIntermediary> + Insertable<Self, DbSession> + Send + Sync,
     >(
         &self,
-        r: V,
+        r: &V,
     ) -> IdentityResult<()> {
         self.session
             .query_with_values(

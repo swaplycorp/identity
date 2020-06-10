@@ -10,7 +10,7 @@ uuid = { version = "0.8.1", features = ["serde", "v4", "v5"] }
 serde = "1.0.110"
 serde_bytes = "0.11.4"
 arrayref = "0.3.6"
-cdrs = { git = "https://github.com/dowlandaiello/cdrs", rev = "b855b6d1f06eb316835b2cec2a5ea0c3eb9b5ba6" }
+cdrs = { git = "https://github.com/dowlandaiello/cdrs", rev = "39fd4798791e4b90fa6f78770c293bef25d5d0a9" }
 cdrs_helpers_derive = "0.3.3"
 time = { version = "0.1.43" }
 chrono = { version = "0.4", features = ["serde"] }
