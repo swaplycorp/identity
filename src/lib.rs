@@ -214,10 +214,9 @@ pub mod error {
 ///
 /// # #[tokio::main]
 /// # async fn main() -> Result<(), Box<dyn Error>> {
-/// # dotenv::dotenv()?;
+/// # swaply_identity::load_env!();
 ///
 /// let db_node = env::var("SCYLLA_NODE_URL")?;
-///
 ///
 /// let auth = StaticPasswordAuthenticator::new(env::var("SCYLLA_USERNAME")?, env::var("SCYLLA_PASSWORD")?);
 /// let node = NodeTcpConfigBuilder::new(&db_node, auth).build();
