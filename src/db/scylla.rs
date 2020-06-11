@@ -5,7 +5,11 @@ use cdrs::{
 };
 
 use super::{
-    super::{error::{QueryError, IdentityError}, result::IdentityResult, DbSession},
+    super::{
+        error::{IdentityError, QueryError},
+        result::IdentityResult,
+        DbSession,
+    },
     Deserializable, Insertable, Provider, Queryable, Serializable,
 };
 

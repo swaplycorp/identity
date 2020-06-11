@@ -31,7 +31,9 @@ pub trait Provider<Db, Session> {
     /// # Arguments
     ///
     /// * `r` - The record that should be inserted into the database
-    async fn insert_record<V: Serializable<Self::RequestIntermediary> + Insertable<Db, Session> + Send + Sync>(
+    async fn insert_record<
+        V: Serializable<Self::RequestIntermediary> + Insertable<Db, Session> + Send + Sync,
+    >(
         &self,
         r: &V,
     ) -> IdentityResult<()>;

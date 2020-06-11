@@ -26,7 +26,24 @@ pub mod db;
 /// DbSession represents a Scylla database session.
 pub type DbSession = Session<RoundRobin<TcpConnectionPool<StaticPasswordAuthenticator>>>;
 
-mod testing {
+/// Testing defines utilities useful in testing swaply identity features.
+#[cfg(test)]
+pub(crate) mod testing {
+    use cdrs::{
+        cluster::{ClusterTcpConfig, NodeTcpConfigBuilder},
+        load_balancing::RoundRobin,
+    };
+    use std::{env, error::Error};
+
+    use super::{
+        db::{Insertable, Provider, Serializable},
+        schema::user::User,
+        *,
+    };
+
+    /// Represents a default password utilized by the generate_user method.
+    const TEST_PASSWORD_HASH: &'static [u8] = b"123456";
+
     // If a .env file doesn't exist, fallback to env variables
     #[macro_export]
     macro_rules! load_env {
@@ -35,6 +52,51 @@ mod testing {
                 dotenv::dotenv().ok();
             }
         }};
+    }
+
+    /// Opens a connection to the scylla databse defined by a .env file, or simple environment
+    /// variables.
+    pub async fn open_session() -> Result<DbSession, Box<dyn Error>> {
+        load_env!();
+
+        let db_node = env::var("SCYLLA_NODE_URL")?;
+
+        let auth = StaticPasswordAuthenticator::new(
+            env::var("SCYLLA_USERNAME")?,
+            env::var("SCYLLA_PASSWORD")?,
+        );
+
+        let node = NodeTcpConfigBuilder::new(&db_node, auth).build();
+        let cluster_config = ClusterTcpConfig(vec![node]);
+        cdrs::cluster::session::new(&cluster_config, RoundRobin::new())
+            .await
+            .map_err(|e| e.into())
+    }
+
+    /// Inserts the provided user into the provided database session.
+    ///
+    /// # Arguments
+    ///
+    /// * `session` - The session that the user should be inserted into
+    pub async fn insert_user<'a, Db: Provider<Db, Session>, Session>(
+        session: &Db,
+        u: &User<'a>,
+    ) -> Result<(), error::IdentityError>
+    where
+        User<'a>: Insertable<Db, Session> + Serializable<Db::RequestIntermediary>,
+    {
+        session.insert_record(u).await
+    }
+
+    /// Generates an instance of the User struct.
+    pub fn generate_user<'a>() -> User<'a> {
+        User::new(
+            None,
+            "test",
+            "test@test.com",
+            blake3::hash(TEST_PASSWORD_HASH).into(),
+            None,
+        )
     }
 }
 
@@ -92,7 +154,7 @@ pub mod error {
             match self {
                 Self::QueryError(e) => Some(e),
                 Self::InsertionError(e) => Some(e),
-                Self::CDRSError(e) => Some(e)
+                Self::CDRSError(e) => Some(e),
             }
         }
     }
@@ -168,7 +230,9 @@ pub mod error {
 ///
 /// # #[tokio::main]
 /// # async fn main() -> Result<(), Box<dyn Error>> {
-/// # swaply_identity::load_env!();
+/// # if std::path::Path::new(".env").exists() {
+/// #     dotenv::dotenv().ok();
+/// # }
 ///
 /// let db_node = env::var("SCYLLA_NODE_URL")?;
 ///

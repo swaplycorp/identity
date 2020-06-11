@@ -1,6 +1,11 @@
-use super::super::{db::{InTable, scylla::Scylla}, DbSession, result::IdentityResult, error::IdentityError};
+use super::super::{
+    db::{scylla::Scylla, InTable},
+    error::IdentityError,
+    result::IdentityResult,
+    DbSession,
+};
 
-use cdrs::{query::QueryExecutor, error::Error as CDRSError};
+use cdrs::{error::Error as CDRSError, query::QueryExecutor};
 use uuid::Uuid;
 
 /// NicknameRecord represents an owned copy of a mapping between a nickname and a UUID.
@@ -39,5 +44,28 @@ impl InTable<Scylla, DbSession> for NicknameRecord {
             .await
             .map_err(|e| <CDRSError as Into<IdentityError>>::into(e))
             .map(|_| ())
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use cdrs::{
+        authenticators::StaticPasswordAuthenticator,
+        cluster::{ClusterTcpConfig, NodeTcpConfigBuilder},
+        load_balancing::RoundRobin,
+    };
+    use std::{env, error::Error};
+
+    use super::{
+        super::{super::db::Provider, user},
+        *,
+    };
+    use crate::testing;
+
+    #[tokio::test]
+    async fn test_insert_nickname_record() -> Result<(), Box<dyn Error>> {
+        let session = testing::open_session().await?;
+
+        Ok(())
     }
 }
