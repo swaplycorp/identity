@@ -10,4 +10,4 @@ git clone git@github.com:swap-ly/identity.git
 cd identity && cargo check
 ```
 
-Test can be run with the standard `cargo test` command.
+Tests can be run with the standard `cargo test` command.
