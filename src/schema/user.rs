@@ -405,7 +405,7 @@ impl<'a> InTable<Scylla, DbSession> for User<'a> {
         session
             .query(
                 // A table storing all users
-                r#"
+                "
                     CREATE TABLE IF NOT EXISTS identity.users (
                         id UUID,
                         username TEXT,
@@ -414,9 +414,17 @@ impl<'a> InTable<Scylla, DbSession> for User<'a> {
                         registered_at TIMESTAMP,
                         PRIMARY KEY (id)
                     );
-                "#,
+                ",
             )
             .await
+            .and(
+                session
+                    .query(
+                        // Mappings from nicknames to user IDs
+                        "CREATE INDEX IF NOT EXISTS ON identity.users (username);",
+                    )
+                    .await,
+            )
             .map_err(|e| <CDRSError as Into<IdentityError>>::into(e))
             .map(|_| ())
     }
@@ -439,11 +447,7 @@ impl Serializable<QueryValues> for User<'_> {
 }
 
 impl<'a> Insertable<Scylla, DbSession> for User<'a> {
-    fn to_insertion_query(&self) -> IdentityResult<&str> {
-        Ok(
-            r#"INSERT INTO identity.users (id, username, email, password_hash, registered_at) VALUES (?, ?, ?, ?, ?);"#,
-        )
-    }
+    const INSERTION_QUERY: &'static str = r#"INSERT INTO identity.users (id, username, email, password_hash, registered_at) VALUES (?, ?, ?, ?, ?);"#;
 }
 
 #[derive(Debug)]
@@ -528,36 +532,13 @@ pub enum UserQuery<'a> {
 
 #[async_trait]
 impl Queryable<Scylla, DbSession> for UserQuery<'_> {
-    async fn to_query(&self, session: &DbSession) -> IdentityResult<String> {
-        let query_id = match self {
-            Self::Id(id) => format!("{}", id),
-            Self::Nickname(nick) => session
-                .query(format!(
-                    "SELECT user_id FROM identity.nicknames WHERE nickname = '{}';",
-                    nick,
-                ))
-                .await
-                .and_then(|frame| frame.get_body())
-                .map_err(|e| <CDRSError as Into<IdentityError>>::into(e))
-                .and_then(|body| body.into_rows().ok_or(QueryError::NoResults.into()))
-                .and_then(|mut rows| {
-                    if rows.len() == 0 {
-                        Err(QueryError::NoResults.into())
-                    } else {
-                        Ok(rows.remove(0))
-                    }
-                })
-                .and_then(|row| {
-                    <Row as IntoRustByName<Uuid>>::get_r_by_name(&row, "user_id")
-                        .map(|id| format!("{}", id))
-                        .map_err(|e| <CDRSError as Into<IdentityError>>::into(e))
-                })?,
-        };
-
-        Ok(format!(
-            "SELECT * FROM identity.users WHERE id = {}",
-            query_id
-        ))
+    async fn to_query(&self, _session: &DbSession) -> IdentityResult<String> {
+        Ok(match self {
+            Self::Id(id) => format!("SELECT * FROM identity.users WHERE id = {};", id),
+            Self::Nickname(nick) => {
+                format!("SELECT * FROM identity.users WHERE username = '{}';", nick)
+            }
+        })
     }
 }
 
@@ -650,12 +631,7 @@ impl Deserializable<OwnedUser, Row> for OwnedUser {
 
 #[cfg(test)]
 pub mod test {
-    use cdrs::{
-        authenticators::StaticPasswordAuthenticator,
-        cluster::{ClusterTcpConfig, NodeTcpConfigBuilder},
-        load_balancing::RoundRobin,
-    };
-    use std::{env, error::Error};
+    use std::{error::Error};
 
     use super::{super::super::db::Provider, *};
     use crate::testing;

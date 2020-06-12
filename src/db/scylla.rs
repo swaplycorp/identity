@@ -88,7 +88,8 @@ impl Provider<Self, DbSession> for Scylla {
     ) -> IdentityResult<()> {
         self.session
             .query_with_values(
-                r.to_insertion_query()?,
+                V::INSERTION_QUERY,
+
                 // The struct being inserted must return a type that can be converted to an
                 // IdentityError when the struct is converted to a QueryValues instance. As such,
                 // we can convert the error that the struct returns upon conversion to the desired

@@ -112,7 +112,6 @@ pub mod result {
 /// Error implements helpful error types.
 pub mod error {
     use cdrs::error::Error as CDRSError;
-    use regex::Error as RegexError;
     use std::{error::Error, fmt};
 
     use super::schema::user::{ConvertRowToUserError, ConvertUserToQueryValuesError};
@@ -121,19 +120,12 @@ pub mod error {
     #[derive(Debug)]
     pub enum IdentityError {
         QueryError(QueryError),
-        InsertionError(InsertionError),
         CDRSError(CDRSError),
     }
 
     impl From<QueryError> for IdentityError {
         fn from(e: QueryError) -> Self {
             Self::QueryError(e)
-        }
-    }
-
-    impl From<InsertionError> for IdentityError {
-        fn from(e: InsertionError) -> Self {
-            Self::InsertionError(e)
         }
     }
 
@@ -153,7 +145,6 @@ pub mod error {
         fn source(&self) -> Option<&(dyn Error + 'static)> {
             match self {
                 Self::QueryError(e) => Some(e),
-                Self::InsertionError(e) => Some(e),
                 Self::CDRSError(e) => Some(e),
             }
         }
@@ -186,31 +177,6 @@ pub mod error {
                 Self::NoResults => None,
                 Self::SerializationError(e) => Some(e),
                 Self::DeserializationError(e) => Some(e),
-            }
-        }
-    }
-
-    /// InsertionError represents any error that may be encountered whilst inserting a value into a
-    /// database.
-    #[derive(Debug)]
-    pub enum InsertionError {
-        RegexError(RegexError),
-    }
-
-    impl fmt::Display for InsertionError {
-        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            write!(
-                f,
-                "encountered an error while inserting a record into a table: {:?}",
-                self.source()
-            )
-        }
-    }
-
-    impl Error for InsertionError {
-        fn source(&self) -> Option<&(dyn Error + 'static)> {
-            match self {
-                Self::RegexError(e) => Some(e),
             }
         }
     }

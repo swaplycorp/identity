@@ -50,8 +50,8 @@ pub trait Queryable<Db, Session> {
 /// Insertable represents a type that implements an insertion query generator for the respective
 /// database provider.
 pub trait Insertable<Db, Session> {
-    /// Constructs a query from the query type.
-    fn to_insertion_query(&self) -> IdentityResult<&str>;
+    //// The query that will be used to insert the record struct into the database.
+    const INSERTION_QUERY: &'static str;
 }
 
 /// Deserializable represents a type that may be converted to from a NativeType defined by a
