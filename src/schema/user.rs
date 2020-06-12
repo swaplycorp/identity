@@ -631,7 +631,7 @@ impl Deserializable<OwnedUser, Row> for OwnedUser {
 
 #[cfg(test)]
 pub mod test {
-    use std::{error::Error};
+    use std::error::Error;
 
     use super::{super::super::db::Provider, *};
     use crate::testing;
@@ -650,7 +650,7 @@ pub mod test {
     }
 
     #[tokio::test]
-    async fn test_load_user() -> Result<(), Box<dyn Error>> {
+    async fn test_query_user_id() -> Result<(), Box<dyn Error>> {
         let session = testing::open_session().await?;
 
         crate::create_keyspace(&session).await?;
@@ -662,6 +662,25 @@ pub mod test {
         testing::insert_user(&db, &u).await?;
 
         let loaded_u: OwnedUser = db.load_record(&UserQuery::Id(u.id())).await?;
+
+        assert_eq!(loaded_u, u);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_query_user_nickname() -> Result<(), Box<dyn Error>> {
+        let session = testing::open_session().await?;
+
+        crate::create_keyspace(&session).await?;
+        User::create_prerequisite_objects(&session).await?;
+
+        let db = Scylla::new(session);
+
+        let u = testing::generate_user();
+        testing::insert_user(&db, &u).await?;
+
+        let loaded_u: OwnedUser = db.load_record(&UserQuery::Nickname("test")).await?;
 
         assert_eq!(loaded_u, u);
 
